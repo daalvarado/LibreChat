@@ -12,7 +12,7 @@ services:
   api:
     image: ghcr.io/danny-avila/librechat-dev:latest
   volumes:
-    - /volume1/docker/librechat/.env:/app/.env
+    - /volume1/docker/librechat/data/.env:/app/.env
     - /volume1/docker/librechat/data/images:/app/client/public/images
 
 # # BUILD FROM LATEST IMAGE (NUMBERED RELEASE)
