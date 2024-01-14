@@ -27,7 +27,7 @@ services:
       - /volume1/docker/librechat/data/images:/app/client/public/images
   mongodb:
     container_name: chat-mongodb
-    image: mongo
+    image: mongo:4.2
     restart: always
     user: "${UID}:${GID}"
     volumes:
