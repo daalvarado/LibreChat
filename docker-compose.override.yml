@@ -24,7 +24,6 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
       - /volume1/docker/librechat/meili_data_v1.12:/meili_data
-  
 
 # # EXPOSE MEILISEARCH PORTS - DO NOT USE THE DEFAULT VALUE FOR THE MASTER KEY IF YOU DO THIS
 #   meilisearch:
