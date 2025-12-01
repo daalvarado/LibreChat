@@ -11,7 +11,7 @@ services:
 # # BUILD FROM LATEST IMAGE
   api:
     volumes:
-      - /volume1/docker/librechat/data/.env:/app/.env
+      - .env:/app/.env
       - /volume1/docker/librechat/data/images:/app/client/public/images
       - /volume1/docker/librechat/data/uploads:/app/uploads
       - /volume1/docker/librechat/data/logs:/app/logs
