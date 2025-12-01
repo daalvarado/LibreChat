@@ -1,35 +1,30 @@
-const GoogleSearchAPI = require('./GoogleSearch');
-const OpenAICreateImage = require('./DALL-E');
+const manifest = require('./manifest');
+
+// Structured Tools
 const DALLE3 = require('./structured/DALLE3');
-const StructuredSD = require('./structured/StableDiffusion');
-const StableDiffusionAPI = require('./StableDiffusion');
-const WolframAlphaAPI = require('./Wolfram');
+const FluxAPI = require('./structured/FluxAPI');
+const OpenWeather = require('./structured/OpenWeather');
 const StructuredWolfram = require('./structured/Wolfram');
-const SelfReflectionTool = require('./SelfReflection');
-const AzureAiSearch = require('./AzureAiSearch');
+const createYouTubeTools = require('./structured/YouTube');
 const StructuredACS = require('./structured/AzureAISearch');
-const ChatTool = require('./structured/ChatTool');
-const E2BTools = require('./structured/E2BTools');
-const CodeSherpa = require('./structured/CodeSherpa');
-const CodeSherpaTools = require('./structured/CodeSherpaTools');
-const availableTools = require('./manifest.json');
-const CodeBrew = require('./CodeBrew');
+const StructuredSD = require('./structured/StableDiffusion');
+const GoogleSearchAPI = require('./structured/GoogleSearch');
+const TraversaalSearch = require('./structured/TraversaalSearch');
+const createOpenAIImageTools = require('./structured/OpenAIImageTools');
+const TavilySearchResults = require('./structured/TavilySearchResults');
 
 module.exports = {
-  availableTools,
-  GoogleSearchAPI,
-  OpenAICreateImage,
+  ...manifest,
+  // Structured Tools
   DALLE3,
-  StableDiffusionAPI,
+  FluxAPI,
+  OpenWeather,
   StructuredSD,
-  WolframAlphaAPI,
-  StructuredWolfram,
-  SelfReflectionTool,
-  AzureAiSearch,
   StructuredACS,
-  E2BTools,
-  ChatTool,
-  CodeSherpa,
-  CodeSherpaTools,
-  CodeBrew,
+  GoogleSearchAPI,
+  TraversaalSearch,
+  StructuredWolfram,
+  createYouTubeTools,
+  TavilySearchResults,
+  createOpenAIImageTools,
 };

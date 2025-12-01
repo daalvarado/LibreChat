@@ -1,60 +1,64 @@
-const { z } = require('zod');
+const path = require('path');
 const fs = require('fs').promises;
 const express = require('express');
-const upload = require('./multer');
-const { processImageUpload } = require('~/server/services/Files/process');
-const { logger } = require('~/config');
+const { logger } = require('@librechat/data-schemas');
+const { isAgentsEndpoint } = require('librechat-data-provider');
+const {
+  filterFile,
+  processImageFile,
+  processAgentFileUpload,
+} = require('~/server/services/Files/process');
 
 const router = express.Router();
 
-router.post('/', upload.single('file'), async (req, res) => {
-  const file = req.file;
+router.post('/', async (req, res) => {
   const metadata = req.body;
-  // TODO: add file size/type validation
-
-  const uuidSchema = z.string().uuid();
+  const appConfig = req.config;
 
   try {
-    if (!file) {
-      throw new Error('No file provided');
-    }
+    filterFile({ req, image: true });
 
-    if (!metadata.file_id) {
-      throw new Error('No file_id provided');
-    }
-
-    if (!metadata.width) {
-      throw new Error('No width provided');
-    }
-
-    if (!metadata.height) {
-      throw new Error('No height provided');
-    }
-    /* parse to validate api call */
-    uuidSchema.parse(metadata.file_id);
     metadata.temp_file_id = metadata.file_id;
     metadata.file_id = req.file_id;
 
-    await processImageUpload({ req, res, file, metadata });
+    if (isAgentsEndpoint(metadata.endpoint) && metadata.tool_resource != null) {
+      return await processAgentFileUpload({ req, res, metadata });
+    }
+
+    await processImageFile({ req, res, metadata });
   } catch (error) {
+    // TODO: delete remote file if it exists
     logger.error('[/files/images] Error processing file:', error);
+
+    let message = 'Error processing file';
+
+    if (
+      error.message?.includes('Invalid file format') ||
+      error.message?.includes('No OCR result') ||
+      error.message?.includes('exceeds token limit')
+    ) {
+      message = error.message;
+    }
+
     try {
-      await fs.unlink(file.path);
+      const filepath = path.join(
+        appConfig.paths.imageOutput,
+        req.user.id,
+        path.basename(req.file.filename),
+      );
+      await fs.unlink(filepath);
     } catch (error) {
       logger.error('[/files/images] Error deleting file:', error);
     }
-    res.status(500).json({ message: 'Error processing file' });
+    res.status(500).json({ message });
+  } finally {
+    try {
+      await fs.unlink(req.file.path);
+      logger.debug('[/files/images] Temp. image upload file deleted');
+    } catch {
+      logger.debug('[/files/images] Temp. image upload file already deleted');
+    }
   }
-
-  // do this if strategy is not local
-  // finally {
-  //   try {
-  //     // await fs.unlink(file.path);
-  //   } catch (error) {
-  //     logger.error('[/files/images] Error deleting file:', error);
-
-  //   }
-  // }
 });
 
 module.exports = router;

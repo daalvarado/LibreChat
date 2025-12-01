@@ -1,23 +1,24 @@
 import filenamify from 'filenamify';
 import exportFromJSON from 'export-from-json';
+import { useToastContext } from '@librechat/client';
+import { QueryKeys } from 'librechat-data-provider';
 import { useCallback, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { QueryKeys, modularEndpoints } from 'librechat-data-provider';
 import { useRecoilState, useSetRecoilState, useRecoilValue } from 'recoil';
-import { useCreatePresetMutation } from 'librechat-data-provider/react-query';
+import { useCreatePresetMutation, useGetModelsQuery } from 'librechat-data-provider/react-query';
 import type { TPreset, TEndpointsConfig } from 'librechat-data-provider';
 import {
   useUpdatePresetMutation,
   useDeletePresetMutation,
   useGetPresetsQuery,
 } from '~/data-provider';
-import { useChatContext, useToastContext } from '~/Providers';
-import useNavigateToConvo from '~/hooks/useNavigateToConvo';
-import { cleanupPreset, getEndpointField } from '~/utils';
-import useDefaultConvo from '~/hooks/useDefaultConvo';
+import { cleanupPreset, removeUnavailableTools, getConvoSwitchLogic } from '~/utils';
+import useDefaultConvo from '~/hooks/Conversations/useDefaultConvo';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { NotificationSeverity } from '~/common';
-import useLocalize from '~/hooks/useLocalize';
+import useNewConvo from '~/hooks/useNewConvo';
+import { useChatContext } from '~/Providers';
+import { useLocalize } from '~/hooks';
 import store from '~/store';
 
 export default function usePresets() {
@@ -28,18 +29,25 @@ export default function usePresets() {
   const { user, isAuthenticated } = useAuthContext();
 
   const modularChat = useRecoilValue(store.modularChat);
-  const [_defaultPreset, setDefaultPreset] = useRecoilState(store.defaultPreset);
+  const availableTools = useRecoilValue(store.availableTools);
   const setPresetModalVisible = useSetRecoilState(store.presetModalVisible);
-  const { preset, conversation, newConversation, setPreset } = useChatContext();
+  const [_defaultPreset, setDefaultPreset] = useRecoilState(store.defaultPreset);
   const presetsQuery = useGetPresetsQuery({ enabled: !!user && isAuthenticated });
+  const { preset, conversation, index, setPreset } = useChatContext();
+  const { data: modelsData } = useGetModelsQuery();
+  const { newConversation } = useNewConvo(index);
 
   useEffect(() => {
+    if (modelsData?.initial) {
+      return;
+    }
+
     const { data: presets } = presetsQuery;
     if (_defaultPreset || !presets || hasLoaded.current) {
       return;
     }
 
-    if (presets && presets.length > 0 && user && presets[0].user !== user?.id) {
+    if (presets && presets.length > 0 && user && presets[0].user !== user.id) {
       presetsQuery.refetch();
       return;
     }
@@ -51,12 +59,12 @@ export default function usePresets() {
     }
     setDefaultPreset(defaultPreset);
     if (!conversation?.conversationId || conversation.conversationId === 'new') {
-      newConversation({ preset: defaultPreset });
+      newConversation({ preset: defaultPreset, modelsData, disableParams: true });
     }
     hasLoaded.current = true;
     // dependencies are stable and only needed once
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [presetsQuery.data, user]);
+  }, [presetsQuery.data, user, modelsData]);
 
   const setPresets = useCallback(
     (presets: TPreset[]) => {
@@ -73,7 +81,7 @@ export default function usePresets() {
       }
       const previousPresets = presetsQuery.data ?? [];
       if (previousPresets) {
-        setPresets(previousPresets.filter((p) => p.presetId !== preset?.presetId));
+        setPresets(previousPresets.filter((p) => p.presetId !== preset.presetId));
       }
     },
     onSuccess: () => {
@@ -92,12 +100,12 @@ export default function usePresets() {
   const updatePreset = useUpdatePresetMutation({
     onSuccess: (data, preset) => {
       const toastTitle = data.title ? `"${data.title}"` : localize('com_endpoint_preset_title');
-      let message = `${toastTitle} ${localize('com_endpoint_preset_saved')}`;
+      let message = `${toastTitle} ${localize('com_ui_saved')}`;
       if (data.defaultPreset && data.presetId !== _defaultPreset?.presetId) {
         message = `${toastTitle} ${localize('com_endpoint_preset_default')}`;
         setDefaultPreset(data);
-        newConversation({ preset: data });
-      } else if (preset?.defaultPreset === false) {
+        newConversation({ preset: data, disableParams: true });
+      } else if (preset.defaultPreset === false) {
         setDefaultPreset(null);
         message = `${toastTitle} ${localize('com_endpoint_preset_default_removed')}`;
       }
@@ -114,10 +122,8 @@ export default function usePresets() {
       });
     },
   });
-  const { navigateToConvo } = useNavigateToConvo();
-  const getDefaultConversation = useDefaultConvo();
 
-  const { endpoint } = conversation ?? {};
+  const getDefaultConversation = useDefaultConvo();
 
   const importPreset = (jsonPreset: TPreset) => {
     createPresetMutation.mutate(
@@ -145,10 +151,12 @@ export default function usePresets() {
     importPreset(jsonPreset);
   };
 
-  const onSelectPreset = (newPreset: TPreset) => {
-    if (!newPreset) {
+  const onSelectPreset = (_newPreset: TPreset) => {
+    if (!_newPreset) {
       return;
     }
+
+    const newPreset = removeUnavailableTools(_newPreset, availableTools);
 
     const toastTitle = newPreset.title
       ? `"${newPreset.title}"`
@@ -162,27 +170,50 @@ export default function usePresets() {
 
     const endpointsConfig = queryClient.getQueryData<TEndpointsConfig>([QueryKeys.endpoints]);
 
-    const currentEndpointType = getEndpointField(endpointsConfig, endpoint, 'type');
-    const endpointType = getEndpointField(endpointsConfig, newPreset.endpoint, 'type');
+    const {
+      shouldSwitch,
+      isNewModular,
+      newEndpointType,
+      isCurrentModular,
+      isExistingConversation,
+    } = getConvoSwitchLogic({
+      newEndpoint: newPreset.endpoint ?? '',
+      modularChat,
+      conversation,
+      endpointsConfig,
+    });
 
-    if (
-      (modularEndpoints.has(endpoint ?? '') || modularEndpoints.has(currentEndpointType ?? '')) &&
-      (modularEndpoints.has(newPreset?.endpoint ?? '') ||
-        modularEndpoints.has(endpointType ?? '')) &&
-      (endpoint === newPreset?.endpoint || modularChat)
-    ) {
+    newPreset.spec = null;
+    newPreset.iconURL = newPreset.iconURL ?? null;
+    newPreset.modelLabel = newPreset.modelLabel ?? null;
+    const isModular = isCurrentModular && isNewModular && shouldSwitch;
+    const disableParams = newPreset.defaultPreset === true;
+    if (isExistingConversation && isModular) {
       const currentConvo = getDefaultConversation({
         /* target endpointType is necessary to avoid endpoint mixing */
-        conversation: { ...(conversation ?? {}), endpointType },
-        preset: { ...newPreset, endpointType },
+        conversation: {
+          ...(conversation ?? {}),
+          spec: null,
+          iconURL: null,
+          modelLabel: null,
+          endpointType: newEndpointType,
+        },
+        preset: { ...newPreset, endpointType: newEndpointType },
+        cleanInput: true,
       });
 
       /* We don't reset the latest message, only when changing settings mid-converstion */
-      navigateToConvo(currentConvo, false);
+      newConversation({
+        template: currentConvo,
+        preset: currentConvo,
+        keepLatestMessage: true,
+        keepAddedConvos: true,
+        disableParams,
+      });
       return;
     }
 
-    newConversation({ preset: newPreset });
+    newConversation({ preset: newPreset, keepAddedConvos: isModular, disableParams });
   };
 
   const onChangePreset = (preset: TPreset) => {
@@ -215,7 +246,7 @@ export default function usePresets() {
     if (!preset) {
       return;
     }
-    const fileName = filenamify(preset?.title || 'preset');
+    const fileName = filenamify(preset.title || 'preset');
     exportFromJSON({
       data: cleanupPreset({ preset }),
       fileName,

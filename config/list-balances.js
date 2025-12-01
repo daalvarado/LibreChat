@@ -1,8 +1,8 @@
 const path = require('path');
+const mongoose = require('mongoose');
+const { User, Balance } = require('@librechat/data-schemas').createModels(mongoose);
 require('module-alias')({ base: path.resolve(__dirname, '..', 'api') });
 const { silentExit } = require('./helpers');
-const Balance = require('~/models/Balance');
-const User = require('~/models/User');
 const connect = require('./connect');
 
 (async () => {
@@ -19,9 +19,9 @@ const connect = require('./connect');
   for (const user of users) {
     let balance = await Balance.findOne({ user: user._id });
     if (balance !== null) {
-      console.green(`User ${user.name} has a balance of ${balance.tokenCredits}`);
+      console.green(`User ${user.name} (${user.email}) has a balance of ${balance.tokenCredits}`);
     } else {
-      console.yellow(`User ${user.name} has no balance`);
+      console.yellow(`User ${user.name} (${user.email}) has no balance`);
     }
   }
 

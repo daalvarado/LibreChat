@@ -1,3 +1,5 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-nocheck
 const path = require('path');
 const { execSync } = require('child_process');
 const { askQuestion, isDockerRunning, deleteNodeModules, silentExit } = require('./helpers');
@@ -16,6 +18,9 @@ const rootDir = path.resolve(__dirname, '..');
 const directories = [
   rootDir,
   path.resolve(rootDir, 'packages', 'data-provider'),
+  path.resolve(rootDir, 'packages', 'data-schemas'),
+  path.resolve(rootDir, 'packages', 'client'),
+  path.resolve(rootDir, 'packages', 'api'),
   path.resolve(rootDir, 'client'),
   path.resolve(rootDir, 'api'),
 ];
@@ -79,7 +84,7 @@ async function validateDockerRunning() {
 
   if (docker) {
     console.purple('Removing previously made Docker container...');
-    const downCommand = `${sudo}docker-compose ${
+    const downCommand = `${sudo}docker compose ${
       singleCompose ? '-f ./docs/dev/single-compose.yml ' : ''
     }down`;
     console.orange(downCommand);
@@ -95,7 +100,7 @@ async function validateDockerRunning() {
     console.purple('Removing all unused dangling Docker images...');
     execSync(`${sudo}docker image prune -f`, { stdio: 'inherit' });
     console.purple('Building new LibreChat image...');
-    const buildCommand = `${sudo}docker-compose ${
+    const buildCommand = `${sudo}docker compose ${
       singleCompose ? '-f ./docs/dev/single-compose.yml ' : ''
     }build --no-cache`;
     console.orange(buildCommand);
@@ -119,14 +124,14 @@ async function validateDockerRunning() {
 
   let startCommand = 'npm run backend';
   if (docker) {
-    startCommand = `${sudo}docker-compose ${
+    startCommand = `${sudo}docker compose ${
       singleCompose ? '-f ./docs/dev/single-compose.yml ' : ''
     }up`;
   }
   console.green('Your LibreChat app is now up to date! Start the app with the following command:');
   console.purple(startCommand);
   console.orange(
-    'Note: it\'s also recommended to clear your browser cookies and localStorage for LibreChat to assure a fully clean installation.',
+    "Note: it's also recommended to clear your browser cookies and localStorage for LibreChat to assure a fully clean installation.",
   );
-  console.orange('Also: Don\'t worry, your data is safe :)');
+  console.orange("Also: Don't worry, your data is safe :)");
 })();

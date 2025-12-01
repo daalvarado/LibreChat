@@ -1,87 +1,169 @@
-const Keyv = require('keyv');
 const axios = require('axios');
-const HttpsProxyAgent = require('https-proxy-agent');
-const { EModelEndpoint, defaultModels } = require('librechat-data-provider');
-const { isEnabled } = require('~/server/utils');
-const keyvRedis = require('~/cache/keyvRedis');
+const { logger } = require('@librechat/data-schemas');
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const { logAxiosError, inputSchema, processModelData, isUserProvided } = require('@librechat/api');
+const {
+  CacheKeys,
+  defaultModels,
+  KnownEndpoints,
+  EModelEndpoint,
+} = require('librechat-data-provider');
+const { OllamaClient } = require('~/app/clients/OllamaClient');
+const getLogStores = require('~/cache/getLogStores');
 const { extractBaseURL } = require('~/utils');
-const { logger } = require('~/config');
 
-// const { getAzureCredentials, genAzureChatCompletion } = require('~/utils/');
+/**
+ * Splits a string by commas and trims each resulting value.
+ * @param {string} input - The input string to split.
+ * @returns {string[]} An array of trimmed values.
+ */
+const splitAndTrim = (input) => {
+  if (!input || typeof input !== 'string') {
+    return [];
+  }
+  return input
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
 
 const { openAIApiKey, userProvidedOpenAI } = require('./Config/EndpointService').config;
-
-const modelsCache = isEnabled(process.env.USE_REDIS)
-  ? new Keyv({ store: keyvRedis })
-  : new Keyv({ namespace: 'models' });
-
-const {
-  OPENROUTER_API_KEY,
-  OPENAI_REVERSE_PROXY,
-  CHATGPT_MODELS,
-  ANTHROPIC_MODELS,
-  GOOGLE_MODELS,
-  PROXY,
-} = process.env ?? {};
 
 /**
  * Fetches OpenAI models from the specified base API path or Azure, based on the provided configuration.
  *
  * @param {Object} params - The parameters for fetching the models.
+ * @param {Object} params.user - The user ID to send to the API.
  * @param {string} params.apiKey - The API key for authentication with the API.
  * @param {string} params.baseURL - The base path URL for the API.
  * @param {string} [params.name='OpenAI'] - The name of the API; defaults to 'OpenAI'.
+ * @param {boolean} [params.direct=false] - Whether `directEndpoint` was configured
  * @param {boolean} [params.azure=false] - Whether to fetch models from Azure.
+ * @param {boolean} [params.userIdQuery=false] - Whether to send the user ID as a query parameter.
+ * @param {boolean} [params.createTokenConfig=true] - Whether to create a token configuration from the API response.
+ * @param {string} [params.tokenKey] - The cache key to save the token configuration. Uses `name` if omitted.
+ * @param {Record<string, string>} [params.headers] - Optional headers for the request.
+ * @param {Partial<IUser>} [params.userObject] - Optional user object for header resolution.
  * @returns {Promise<string[]>} A promise that resolves to an array of model identifiers.
  * @async
  */
-const fetchModels = async ({ apiKey, baseURL, name = 'OpenAI', azure = false }) => {
+const fetchModels = async ({
+  user,
+  apiKey,
+  baseURL: _baseURL,
+  name = EModelEndpoint.openAI,
+  direct,
+  azure = false,
+  userIdQuery = false,
+  createTokenConfig = true,
+  tokenKey,
+  headers,
+  userObject,
+}) => {
   let models = [];
+  const baseURL = direct ? extractBaseURL(_baseURL) : _baseURL;
 
   if (!baseURL && !azure) {
     return models;
   }
 
+  if (!apiKey) {
+    return models;
+  }
+
+  if (name && name.toLowerCase().startsWith(KnownEndpoints.ollama)) {
+    try {
+      return await OllamaClient.fetchModels(baseURL, { headers, user: userObject });
+    } catch (ollamaError) {
+      const logMessage =
+        'Failed to fetch models from Ollama API. Attempting to fetch via OpenAI-compatible endpoint.';
+      logAxiosError({ message: logMessage, error: ollamaError });
+    }
+  }
+
   try {
-    const payload = {
+    const options = {
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        ...(headers ?? {}),
       },
+      timeout: 5000,
     };
 
-    if (PROXY) {
-      payload.httpsAgent = new HttpsProxyAgent(PROXY);
+    if (name === EModelEndpoint.anthropic) {
+      options.headers = {
+        'x-api-key': apiKey,
+        'anthropic-version': process.env.ANTHROPIC_VERSION || '2023-06-01',
+      };
+    } else {
+      options.headers.Authorization = `Bearer ${apiKey}`;
     }
 
-    const res = await axios.get(`${baseURL}${azure ? '' : '/models'}`, payload);
-    models = res.data.data.map((item) => item.id);
-  } catch (err) {
-    logger.error(`Failed to fetch models from ${azure ? 'Azure ' : ''}${name} API`, err);
+    if (process.env.PROXY) {
+      options.httpsAgent = new HttpsProxyAgent(process.env.PROXY);
+    }
+
+    if (process.env.OPENAI_ORGANIZATION && baseURL.includes('openai')) {
+      options.headers['OpenAI-Organization'] = process.env.OPENAI_ORGANIZATION;
+    }
+
+    const url = new URL(`${baseURL.replace(/\/+$/, '')}${azure ? '' : '/models'}`);
+    if (user && userIdQuery) {
+      url.searchParams.append('user', user);
+    }
+    const res = await axios.get(url.toString(), options);
+
+    /** @type {z.infer<typeof inputSchema>} */
+    const input = res.data;
+
+    const validationResult = inputSchema.safeParse(input);
+    if (validationResult.success && createTokenConfig) {
+      const endpointTokenConfig = processModelData(input);
+      const cache = getLogStores(CacheKeys.TOKEN_CONFIG);
+      await cache.set(tokenKey ?? name, endpointTokenConfig);
+    }
+    models = input.data.map((item) => item.id);
+  } catch (error) {
+    const logMessage = `Failed to fetch models from ${azure ? 'Azure ' : ''}${name} API`;
+    logAxiosError({ message: logMessage, error });
   }
 
   return models;
 };
 
-const fetchOpenAIModels = async (opts = { azure: false, plugins: false }, _models = []) => {
+/**
+ * Fetches models from the specified API path or Azure, based on the provided options.
+ * @async
+ * @function
+ * @param {object} opts - The options for fetching the models.
+ * @param {string} opts.user - The user ID to send to the API.
+ * @param {boolean} [opts.azure=false] - Whether to fetch models from Azure.
+ * @param {boolean} [opts.assistants=false] - Whether to fetch models from Azure.
+ * @param {boolean} [opts.plugins=false] - Whether to fetch models from the plugins.
+ * @param {string[]} [_models=[]] - The models to use as a fallback.
+ */
+const fetchOpenAIModels = async (opts, _models = []) => {
   let models = _models.slice() ?? [];
   let apiKey = openAIApiKey;
-  let baseURL = 'https://api.openai.com/v1';
-  let reverseProxyUrl = OPENAI_REVERSE_PROXY;
-  if (opts.azure) {
+  const openaiBaseURL = 'https://api.openai.com/v1';
+  let baseURL = openaiBaseURL;
+  let reverseProxyUrl = process.env.OPENAI_REVERSE_PROXY;
+
+  if (opts.assistants && process.env.ASSISTANTS_BASE_URL) {
+    reverseProxyUrl = process.env.ASSISTANTS_BASE_URL;
+  } else if (opts.azure) {
     return models;
     // const azure = getAzureCredentials();
     // baseURL = (genAzureChatCompletion(azure))
     //   .split('/deployments')[0]
     //   .concat(`/models?api-version=${azure.azureOpenAIApiVersion}`);
     // apiKey = azureOpenAIApiKey;
-  } else if (OPENROUTER_API_KEY) {
-    reverseProxyUrl = 'https://openrouter.ai/api/v1';
-    apiKey = OPENROUTER_API_KEY;
   }
 
   if (reverseProxyUrl) {
     baseURL = extractBaseURL(reverseProxyUrl);
   }
+
+  const modelsCache = getLogStores(CacheKeys.MODEL_QUERIES);
 
   const cachedModels = await modelsCache.get(baseURL);
   if (cachedModels) {
@@ -93,34 +175,62 @@ const fetchOpenAIModels = async (opts = { azure: false, plugins: false }, _model
       apiKey,
       baseURL,
       azure: opts.azure,
+      user: opts.user,
+      name: EModelEndpoint.openAI,
     });
   }
 
-  if (!reverseProxyUrl) {
-    const regex = /(text-davinci-003|gpt-)/;
-    models = models.filter((model) => regex.test(model));
+  if (models.length === 0) {
+    return _models;
+  }
+
+  if (baseURL === openaiBaseURL) {
+    const regex = /(text-davinci-003|gpt-|o\d+)/;
+    const excludeRegex = /audio|realtime/;
+    models = models.filter((model) => regex.test(model) && !excludeRegex.test(model));
+    const instructModels = models.filter((model) => model.includes('instruct'));
+    const otherModels = models.filter((model) => !model.includes('instruct'));
+    models = otherModels.concat(instructModels);
   }
 
   await modelsCache.set(baseURL, models);
   return models;
 };
 
-const getOpenAIModels = async (opts = { azure: false, plugins: false }) => {
-  let models = [
-    'gpt-4',
-    'gpt-4-0613',
-    'gpt-3.5-turbo',
-    'gpt-3.5-turbo-16k',
-    'gpt-3.5-turbo-0613',
-    'gpt-3.5-turbo-0301',
-  ];
+/**
+ * Loads the default models for the application.
+ * @async
+ * @function
+ * @param {object} opts - The options for fetching the models.
+ * @param {string} opts.user - The user ID to send to the API.
+ * @param {boolean} [opts.azure=false] - Whether to fetch models from Azure.
+ * @param {boolean} [opts.plugins=false] - Whether to fetch models for the plugins endpoint.
+ * @param {boolean} [opts.assistants=false] - Whether to fetch models for the Assistants endpoint.
+ */
+const getOpenAIModels = async (opts) => {
+  let models = defaultModels[EModelEndpoint.openAI];
 
-  if (!opts.plugins) {
-    models.push('text-davinci-003');
+  if (opts.assistants) {
+    models = defaultModels[EModelEndpoint.assistants];
+  } else if (opts.azure) {
+    models = defaultModels[EModelEndpoint.azureAssistants];
+  }
+
+  if (opts.plugins) {
+    models = models.filter(
+      (model) =>
+        !model.includes('text-davinci') &&
+        !model.includes('instruct') &&
+        !model.includes('0613') &&
+        !model.includes('0314') &&
+        !model.includes('0301'),
+    );
   }
 
   let key;
-  if (opts.azure) {
+  if (opts.assistants) {
+    key = 'ASSISTANTS_MODELS';
+  } else if (opts.azure) {
     key = 'AZURE_OPENAI_MODELS';
   } else if (opts.plugins) {
     key = 'PLUGIN_MODELS';
@@ -129,11 +239,11 @@ const getOpenAIModels = async (opts = { azure: false, plugins: false }) => {
   }
 
   if (process.env[key]) {
-    models = String(process.env[key]).split(',');
+    models = splitAndTrim(process.env[key]);
     return models;
   }
 
-  if (userProvidedOpenAI && !OPENROUTER_API_KEY) {
+  if (userProvidedOpenAI) {
     return models;
   }
 
@@ -142,26 +252,93 @@ const getOpenAIModels = async (opts = { azure: false, plugins: false }) => {
 
 const getChatGPTBrowserModels = () => {
   let models = ['text-davinci-002-render-sha', 'gpt-4'];
-  if (CHATGPT_MODELS) {
-    models = String(CHATGPT_MODELS).split(',');
+  if (process.env.CHATGPT_MODELS) {
+    models = splitAndTrim(process.env.CHATGPT_MODELS);
   }
 
   return models;
 };
 
-const getAnthropicModels = () => {
-  let models = defaultModels[EModelEndpoint.anthropic];
-  if (ANTHROPIC_MODELS) {
-    models = String(ANTHROPIC_MODELS).split(',');
+/**
+ * Fetches models from the Anthropic API.
+ * @async
+ * @function
+ * @param {object} opts - The options for fetching the models.
+ * @param {string} opts.user - The user ID to send to the API.
+ * @param {string[]} [_models=[]] - The models to use as a fallback.
+ */
+const fetchAnthropicModels = async (opts, _models = []) => {
+  let models = _models.slice() ?? [];
+  let apiKey = process.env.ANTHROPIC_API_KEY;
+  const anthropicBaseURL = 'https://api.anthropic.com/v1';
+  let baseURL = anthropicBaseURL;
+  let reverseProxyUrl = process.env.ANTHROPIC_REVERSE_PROXY;
+
+  if (reverseProxyUrl) {
+    baseURL = extractBaseURL(reverseProxyUrl);
   }
 
+  if (!apiKey) {
+    return models;
+  }
+
+  const modelsCache = getLogStores(CacheKeys.MODEL_QUERIES);
+
+  const cachedModels = await modelsCache.get(baseURL);
+  if (cachedModels) {
+    return cachedModels;
+  }
+
+  if (baseURL) {
+    models = await fetchModels({
+      apiKey,
+      baseURL,
+      user: opts.user,
+      name: EModelEndpoint.anthropic,
+      tokenKey: EModelEndpoint.anthropic,
+    });
+  }
+
+  if (models.length === 0) {
+    return _models;
+  }
+
+  await modelsCache.set(baseURL, models);
   return models;
+};
+
+const getAnthropicModels = async (opts = {}) => {
+  let models = defaultModels[EModelEndpoint.anthropic];
+  if (process.env.ANTHROPIC_MODELS) {
+    models = splitAndTrim(process.env.ANTHROPIC_MODELS);
+    return models;
+  }
+
+  if (isUserProvided(process.env.ANTHROPIC_API_KEY)) {
+    return models;
+  }
+
+  try {
+    return await fetchAnthropicModels(opts, models);
+  } catch (error) {
+    logger.error('Error fetching Anthropic models:', error);
+    return models;
+  }
 };
 
 const getGoogleModels = () => {
   let models = defaultModels[EModelEndpoint.google];
-  if (GOOGLE_MODELS) {
-    models = String(GOOGLE_MODELS).split(',');
+  if (process.env.GOOGLE_MODELS) {
+    models = splitAndTrim(process.env.GOOGLE_MODELS);
+  }
+
+  return models;
+};
+
+const getBedrockModels = () => {
+  let models = defaultModels[EModelEndpoint.bedrock];
+  if (process.env.BEDROCK_AWS_MODELS) {
+    models = splitAndTrim(process.env.BEDROCK_AWS_MODELS);
   }
 
   return models;
@@ -169,7 +346,9 @@ const getGoogleModels = () => {
 
 module.exports = {
   fetchModels,
+  splitAndTrim,
   getOpenAIModels,
+  getBedrockModels,
   getChatGPTBrowserModels,
   getAnthropicModels,
   getGoogleModels,

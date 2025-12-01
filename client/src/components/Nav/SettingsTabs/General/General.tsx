@@ -1,21 +1,42 @@
+import React, { useContext, useCallback } from 'react';
+import Cookies from 'js-cookie';
 import { useRecoilState } from 'recoil';
-import * as Tabs from '@radix-ui/react-tabs';
-import React, { useState, useContext, useCallback, useRef } from 'react';
-import { useClearConversationsMutation } from 'librechat-data-provider/react-query';
-import {
-  ThemeContext,
-  useLocalize,
-  useOnClickOutside,
-  useConversation,
-  useConversations,
-  useLocalStorage,
-} from '~/hooks';
-import type { TDangerButtonProps } from '~/common';
-import AutoScrollSwitch from './AutoScrollSwitch';
-import { Dropdown } from '~/components/ui';
-import DangerButton from '../DangerButton';
-import ModularChat from './ModularChat';
+import { Dropdown, ThemeContext } from '@librechat/client';
+import ArchivedChats from './ArchivedChats';
+import ToggleSwitch from '../ToggleSwitch';
+import { useLocalize } from '~/hooks';
 import store from '~/store';
+
+const toggleSwitchConfigs = [
+  {
+    stateAtom: store.enableUserMsgMarkdown,
+    localizationKey: 'com_nav_user_msg_markdown',
+    switchId: 'enableUserMsgMarkdown',
+    hoverCardText: undefined,
+    key: 'enableUserMsgMarkdown',
+  },
+  {
+    stateAtom: store.autoScroll,
+    localizationKey: 'com_nav_auto_scroll',
+    switchId: 'autoScroll',
+    hoverCardText: undefined,
+    key: 'autoScroll',
+  },
+  {
+    stateAtom: store.hideSidePanel,
+    localizationKey: 'com_nav_hide_panel',
+    switchId: 'hideSidePanel',
+    hoverCardText: undefined,
+    key: 'hideSidePanel',
+  },
+  {
+    stateAtom: store.keepScreenAwake,
+    localizationKey: 'com_nav_keep_screen_awake',
+    switchId: 'keepScreenAwake',
+    hoverCardText: undefined,
+    key: 'keepScreenAwake',
+  },
+];
 
 export const ThemeSelector = ({
   theme,
@@ -27,120 +48,105 @@ export const ThemeSelector = ({
   const localize = useLocalize();
 
   const themeOptions = [
-    { value: 'system', display: localize('com_nav_theme_system') },
-    { value: 'dark', display: localize('com_nav_theme_dark') },
-    { value: 'light', display: localize('com_nav_theme_light') },
+    { value: 'system', label: localize('com_nav_theme_system') },
+    { value: 'dark', label: localize('com_nav_theme_dark') },
+    { value: 'light', label: localize('com_nav_theme_light') },
   ];
+
+  const labelId = 'theme-selector-label';
 
   return (
     <div className="flex items-center justify-between">
-      <div> {localize('com_nav_theme')} </div>
+      <div id={labelId}>{localize('com_nav_theme')}</div>
+
       <Dropdown
         value={theme}
         onChange={onChange}
         options={themeOptions}
-        width={150}
+        sizeClasses="w-[180px]"
         testId="theme-selector"
+        className="z-50"
+        aria-labelledby={labelId}
       />
     </div>
-  );
-};
-
-export const ClearChatsButton = ({
-  confirmClear,
-  className = '',
-  showText = true,
-  mutation,
-  onClick,
-}: Pick<
-  TDangerButtonProps,
-  'confirmClear' | 'mutation' | 'className' | 'showText' | 'onClick'
->) => {
-  return (
-    <DangerButton
-      id="clearConvosBtn"
-      mutation={mutation}
-      confirmClear={confirmClear}
-      className={className}
-      showText={showText}
-      infoTextCode="com_nav_clear_all_chats"
-      actionTextCode="com_ui_clear"
-      confirmActionTextCode="com_nav_confirm_clear"
-      dataTestIdInitial="clear-convos-initial"
-      dataTestIdConfirm="clear-convos-confirm"
-      onClick={onClick}
-    />
   );
 };
 
 export const LangSelector = ({
   langcode,
   onChange,
+  portal = true,
 }: {
   langcode: string;
   onChange: (value: string) => void;
+  portal?: boolean;
 }) => {
   const localize = useLocalize();
 
-  // Create an array of options for the Dropdown
   const languageOptions = [
-    { value: 'auto', display: localize('com_nav_lang_auto') },
-    { value: 'en-US', display: localize('com_nav_lang_english') },
-    { value: 'zh-CN', display: localize('com_nav_lang_chinese') },
-    { value: 'zh-TC', display: localize('com_nav_lang_traditionalchinese') },
-    { value: 'ar-EG', display: localize('com_nav_lang_arabic') },
-    { value: 'de-DE', display: localize('com_nav_lang_german') },
-    { value: 'es-ES', display: localize('com_nav_lang_spanish') },
-    { value: 'fr-FR', display: localize('com_nav_lang_french') },
-    { value: 'it-IT', display: localize('com_nav_lang_italian') },
-    { value: 'pl-PL', display: localize('com_nav_lang_polish') },
-    { value: 'pt-BR', display: localize('com_nav_lang_brazilian_portuguese') },
-    { value: 'ru-RU', display: localize('com_nav_lang_russian') },
-    { value: 'ja-JP', display: localize('com_nav_lang_japanese') },
-    { value: 'sv-SE', display: localize('com_nav_lang_swedish') },
-    { value: 'ko-KR', display: localize('com_nav_lang_korean') },
-    { value: 'vi-VN', display: localize('com_nav_lang_vietnamese') },
-    { value: 'tr-TR', display: localize('com_nav_lang_turkish') },
-    { value: 'nl-NL', display: localize('com_nav_lang_dutch') },
+    { value: 'auto', label: localize('com_nav_lang_auto') },
+    { value: 'en-US', label: localize('com_nav_lang_english') },
+    { value: 'zh-Hans', label: localize('com_nav_lang_chinese') },
+    { value: 'zh-Hant', label: localize('com_nav_lang_traditional_chinese') },
+    { value: 'ar-EG', label: localize('com_nav_lang_arabic') },
+    { value: 'bs', label: localize('com_nav_lang_bosnian') },
+    { value: 'da-DK', label: localize('com_nav_lang_danish') },
+    { value: 'de-DE', label: localize('com_nav_lang_german') },
+    { value: 'es-ES', label: localize('com_nav_lang_spanish') },
+    { value: 'ca-ES', label: localize('com_nav_lang_catalan') },
+    { value: 'et-EE', label: localize('com_nav_lang_estonian') },
+    { value: 'fa-IR', label: localize('com_nav_lang_persian') },
+    { value: 'fr-FR', label: localize('com_nav_lang_french') },
+    { value: 'he-HE', label: localize('com_nav_lang_hebrew') },
+    { value: 'hu-HU', label: localize('com_nav_lang_hungarian') },
+    { value: 'hy-AM', label: localize('com_nav_lang_armenian') },
+    { value: 'it-IT', label: localize('com_nav_lang_italian') },
+    { value: 'nb', label: localize('com_nav_lang_norwegian_bokmal') },
+    { value: 'pl-PL', label: localize('com_nav_lang_polish') },
+    { value: 'pt-BR', label: localize('com_nav_lang_brazilian_portuguese') },
+    { value: 'pt-PT', label: localize('com_nav_lang_portuguese') },
+    { value: 'ru-RU', label: localize('com_nav_lang_russian') },
+    { value: 'ja-JP', label: localize('com_nav_lang_japanese') },
+    { value: 'ka-GE', label: localize('com_nav_lang_georgian') },
+    { value: 'cs-CZ', label: localize('com_nav_lang_czech') },
+    { value: 'sv-SE', label: localize('com_nav_lang_swedish') },
+    { value: 'ko-KR', label: localize('com_nav_lang_korean') },
+    { value: 'lv-LV', label: localize('com_nav_lang_latvian') },
+    { value: 'vi-VN', label: localize('com_nav_lang_vietnamese') },
+    { value: 'th-TH', label: localize('com_nav_lang_thai') },
+    { value: 'tr-TR', label: localize('com_nav_lang_turkish') },
+    { value: 'ug', label: localize('com_nav_lang_uyghur') },
+    { value: 'nl-NL', label: localize('com_nav_lang_dutch') },
+    { value: 'id-ID', label: localize('com_nav_lang_indonesia') },
+    { value: 'fi-FI', label: localize('com_nav_lang_finnish') },
+    { value: 'sl', label: localize('com_nav_lang_slovenian') },
+    { value: 'bo', label: localize('com_nav_lang_tibetan') },
+    { value: 'uk-UA', label: localize('com_nav_lang_ukrainian') },
   ];
+
+  const labelId = 'language-selector-label';
 
   return (
     <div className="flex items-center justify-between">
-      <div> {localize('com_nav_language')} </div>
-      <Dropdown value={langcode} onChange={onChange} options={languageOptions} />
+      <div id={labelId}>{localize('com_nav_language')}</div>
+
+      <Dropdown
+        value={langcode}
+        onChange={onChange}
+        sizeClasses="[--anchor-max-height:256px] max-h-[60vh]"
+        options={languageOptions}
+        className="z-50"
+        aria-labelledby={labelId}
+        portal={portal}
+      />
     </div>
   );
 };
 
 function General() {
   const { theme, setTheme } = useContext(ThemeContext);
-  const clearConvosMutation = useClearConversationsMutation();
-  const [confirmClear, setConfirmClear] = useState(false);
+
   const [langcode, setLangcode] = useRecoilState(store.lang);
-  const [selectedLang, setSelectedLang] = useLocalStorage('selectedLang', langcode);
-  const { newConversation } = useConversation();
-  const { refreshConversations } = useConversations();
-
-  const contentRef = useRef(null);
-  useOnClickOutside(contentRef, () => confirmClear && setConfirmClear(false), []);
-
-  const clearConvos = () => {
-    if (confirmClear) {
-      console.log('Clearing conversations...');
-      setConfirmClear(false);
-      clearConvosMutation.mutate(
-        {},
-        {
-          onSuccess: () => {
-            newConversation();
-            refreshConversations();
-          },
-        },
-      );
-    } else {
-      setConfirmClear(true);
-    }
-  };
 
   const changeTheme = useCallback(
     (value: string) => {
@@ -151,49 +157,42 @@ function General() {
 
   const changeLang = useCallback(
     (value: string) => {
-      setSelectedLang(value);
+      let userLang = value;
       if (value === 'auto') {
-        const userLang = navigator.language || navigator.languages[0];
-        setLangcode(userLang);
-        localStorage.setItem('lang', userLang);
-      } else {
-        setLangcode(value);
-        localStorage.setItem('lang', value);
+        userLang = navigator.language || navigator.languages[0];
       }
+
+      requestAnimationFrame(() => {
+        document.documentElement.lang = userLang;
+      });
+      setLangcode(userLang);
+      Cookies.set('lang', userLang, { expires: 365 });
     },
-    [setLangcode, setSelectedLang],
+    [setLangcode],
   );
 
   return (
-    <Tabs.Content
-      value="general"
-      role="tabpanel"
-      className="w-full md:min-h-[300px]"
-      ref={contentRef}
-    >
-      <div className="flex flex-col gap-3 text-sm text-gray-600 dark:text-gray-300">
-        <div className="border-b pb-3 last-of-type:border-b-0 dark:border-gray-700">
-          <ThemeSelector theme={theme} onChange={changeTheme} />
-        </div>
-        <div className="border-b pb-3 last-of-type:border-b-0 dark:border-gray-700">
-          <LangSelector langcode={selectedLang} onChange={changeLang} />
-        </div>
-        <div className="border-b pb-3 last-of-type:border-b-0 dark:border-gray-700">
-          <ClearChatsButton
-            confirmClear={confirmClear}
-            onClick={clearConvos}
-            showText={true}
-            mutation={clearConvosMutation}
+    <div className="flex flex-col gap-3 p-1 text-sm text-text-primary">
+      <div className="pb-3">
+        <ThemeSelector theme={theme} onChange={changeTheme} />
+      </div>
+      <div className="pb-3">
+        <LangSelector langcode={langcode} onChange={changeLang} />
+      </div>
+      {toggleSwitchConfigs.map((config) => (
+        <div key={config.key} className="pb-3">
+          <ToggleSwitch
+            stateAtom={config.stateAtom}
+            localizationKey={config.localizationKey}
+            hoverCardText={config.hoverCardText}
+            switchId={config.switchId}
           />
         </div>
-        <div className="border-b pb-3 last-of-type:border-b-0 dark:border-gray-700">
-          <AutoScrollSwitch />
-        </div>
-        <div className="border-b pb-3 last-of-type:border-b-0 dark:border-gray-700">
-          <ModularChat />
-        </div>
+      ))}
+      <div className="pb-3">
+        <ArchivedChats />
       </div>
-    </Tabs.Content>
+    </div>
   );
 }
 

@@ -1,20 +1,48 @@
-import { SendIcon } from '~/components/svg';
+import React, { forwardRef } from 'react';
+import { useWatch } from 'react-hook-form';
+import type { Control } from 'react-hook-form';
+import { SendIcon, TooltipAnchor } from '@librechat/client';
+import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
-export default function SendButton({ text, disabled }) {
-  return (
-    <button
-      disabled={!text || disabled}
-      className={cn(
-        'absolute rounded-lg rounded-md border border-black p-0.5 p-1 text-white transition-colors enabled:bg-black enabled:dark:bg-white disabled:bg-black disabled:text-gray-400 disabled:opacity-10 dark:border-white dark:bg-white dark:disabled:bg-white ',
-        'bottom-1.5 right-1.5 md:bottom-2.5 md:right-3 md:p-[2px]',
-      )}
-      data-testid="send-button"
-      type="submit"
-    >
-      <span className="" data-state="closed">
-        <SendIcon size={24} />
-      </span>
-    </button>
-  );
-}
+type SendButtonProps = {
+  disabled: boolean;
+  control: Control<{ text: string }>;
+};
+
+const SubmitButton = React.memo(
+  forwardRef((props: { disabled: boolean }, ref: React.ForwardedRef<HTMLButtonElement>) => {
+    const localize = useLocalize();
+    return (
+      <TooltipAnchor
+        description={localize('com_nav_send_message')}
+        render={
+          <button
+            ref={ref}
+            aria-label={localize('com_nav_send_message')}
+            id="send-button"
+            disabled={props.disabled}
+            className={cn(
+              'rounded-full bg-text-primary p-1.5 text-text-primary outline-offset-4 transition-all duration-200 disabled:cursor-not-allowed disabled:text-text-secondary disabled:opacity-10',
+            )}
+            data-testid="send-button"
+            type="submit"
+          >
+            <span className="" data-state="closed">
+              <SendIcon size={24} />
+            </span>
+          </button>
+        }
+      />
+    );
+  }),
+);
+
+const SendButton = React.memo(
+  forwardRef((props: SendButtonProps, ref: React.ForwardedRef<HTMLButtonElement>) => {
+    const data = useWatch({ control: props.control });
+    return <SubmitButton ref={ref} disabled={props.disabled || !data.text} />;
+  }),
+);
+
+export default SendButton;

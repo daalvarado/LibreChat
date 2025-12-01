@@ -1,12 +1,15 @@
 /* eslint-disable no-useless-escape */
-const axios = require('axios');
 const { z } = require('zod');
-const { StructuredTool } = require('langchain/tools');
-const { logger } = require('~/config');
+const axios = require('axios');
+const { Tool } = require('@langchain/core/tools');
+const { logger } = require('@librechat/data-schemas');
 
-class WolframAlphaAPI extends StructuredTool {
+class WolframAlphaAPI extends Tool {
   constructor(fields) {
     super();
+    /* Used to initialize the Tool without necessary variables. */
+    this.override = fields.override ?? false;
+
     this.name = 'wolfram';
     this.apiKey = fields.WOLFRAM_APP_ID || this.getAppId();
     this.description_for_model = `// Access dynamic computation and curated data from WolframAlpha and Wolfram Cloud.
@@ -55,7 +58,7 @@ class WolframAlphaAPI extends StructuredTool {
 
   getAppId() {
     const appId = process.env.WOLFRAM_APP_ID || '';
-    if (!appId) {
+    if (!appId && !this.override) {
       throw new Error('Missing WOLFRAM_APP_ID environment variable.');
     }
     return appId;

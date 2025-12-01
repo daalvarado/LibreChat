@@ -1,5 +1,6 @@
+const { Constants } = require('librechat-data-provider');
+const { HumanMessage, AIMessage, SystemMessage } = require('@langchain/core/messages');
 const { formatMessage, formatLangChainMessages, formatFromLangChain } = require('./formatMessages');
-const { HumanMessage, AIMessage, SystemMessage } = require('langchain/schema');
 
 describe('formatMessage', () => {
   it('formats user message', () => {
@@ -59,9 +60,8 @@ describe('formatMessage', () => {
         error: false,
         finish_reason: null,
         isCreatedByUser: true,
-        isEdited: false,
         model: null,
-        parentMessageId: '00000000-0000-0000-0000-000000000000',
+        parentMessageId: Constants.NO_PARENT,
         sender: 'User',
         text: 'hi',
         tokenCount: 5,

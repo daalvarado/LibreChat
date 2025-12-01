@@ -1,60 +1,104 @@
-import React, { useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { useRecoilState, useRecoilValue } from 'recoil';
-
-import Messages from '~/components/Messages/Messages';
-import TextChat from '~/components/Input/TextChat';
-
-import { useConversation } from '~/hooks';
+import { useEffect, useMemo } from 'react';
+import { useRecoilValue } from 'recoil';
+import { Spinner, useToastContext } from '@librechat/client';
+import MinimalMessagesWrapper from '~/components/Chat/Messages/MinimalMessages';
+import { useNavScrolling, useLocalize, useAuthContext } from '~/hooks';
+import SearchMessage from '~/components/Chat/Messages/SearchMessage';
+import { useMessagesInfiniteQuery } from '~/data-provider';
+import { useFileMapContext } from '~/Providers';
 import store from '~/store';
 
 export default function Search() {
-  const [searchQuery, setSearchQuery] = useRecoilState(store.searchQuery);
-  const conversation = useRecoilValue(store.conversation);
-  const { searchPlaceholderConversation } = useConversation();
-  const { query } = useParams();
-  const navigate = useNavigate();
+  const localize = useLocalize();
+  const fileMap = useFileMapContext();
+  const { showToast } = useToastContext();
+  const { isAuthenticated } = useAuthContext();
+  const search = useRecoilValue(store.search);
+  const searchQuery = search.debouncedQuery;
 
-  // when conversation changed or conversationId (in url) changed
+  const {
+    data: searchMessages,
+    isLoading,
+    isError,
+    fetchNextPage,
+    isFetchingNextPage,
+    hasNextPage: _hasNextPage,
+  } = useMessagesInfiniteQuery(
+    {
+      search: searchQuery || undefined,
+    },
+    {
+      enabled: isAuthenticated && !!searchQuery,
+      staleTime: 30000,
+      cacheTime: 300000,
+    },
+  );
+
+  const { containerRef } = useNavScrolling({
+    nextCursor: searchMessages?.pages[searchMessages.pages.length - 1]?.nextCursor,
+    setShowLoading: () => ({}),
+    fetchNextPage: fetchNextPage,
+    isFetchingNext: isFetchingNextPage,
+  });
+
+  const messages = useMemo(() => {
+    const msgs =
+      searchMessages?.pages.flatMap((page) =>
+        page.messages.map((message) => {
+          if (!message.files || !fileMap) {
+            return message;
+          }
+          return {
+            ...message,
+            files: message.files.map((file) => fileMap[file.file_id ?? ''] ?? file),
+          };
+        }),
+      ) || [];
+
+    return msgs.length === 0 ? null : msgs;
+  }, [fileMap, searchMessages?.pages]);
+
   useEffect(() => {
-    if (conversation === null) {
-      // no current conversation, we need to do something
-      if (query) {
-        // create new
-        searchPlaceholderConversation();
-        setSearchQuery(query);
-      } else {
-        navigate('/c/new');
-      }
-    } else if (conversation?.conversationId === 'search') {
-      // jump to search page
-      if (searchQuery !== query) {
-        navigate(`/search/${searchQuery}`);
-      }
-    } else {
-      // conversationId (in url) should always follow conversation?.conversationId, unless conversation is null
-      navigate(`/chat/${conversation?.conversationId}`);
+    if (isError && searchQuery) {
+      showToast({ message: 'An error occurred during search', status: 'error' });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversation, query, searchQuery]);
+  }, [isError, searchQuery, showToast]);
 
-  // if not a search
-  if (conversation?.conversationId !== 'search') {
-    return null;
+  const isSearchLoading = search.isTyping || isLoading || isFetchingNextPage;
+
+  if (isSearchLoading) {
+    return (
+      <div className="absolute inset-0 flex items-center justify-center">
+        <Spinner className="text-text-primary" />
+      </div>
+    );
   }
-  // if query not match
-  if (searchQuery !== query) {
-    return null;
-  }
-  // if query is null
-  if (!query) {
+
+  if (!searchQuery) {
     return null;
   }
 
   return (
-    <>
-      <Messages isSearchView={true} />
-      <TextChat isSearchView={true} />
-    </>
+    <MinimalMessagesWrapper ref={containerRef} className="relative flex h-full pt-4">
+      {(messages && messages.length === 0) || messages == null ? (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="rounded-lg bg-white p-6 text-lg text-gray-500 dark:border-gray-800/50 dark:bg-gray-800 dark:text-gray-300">
+            {localize('com_ui_nothing_found')}
+          </div>
+        </div>
+      ) : (
+        <>
+          {messages.map((msg) => (
+            <SearchMessage key={msg.messageId} message={msg} />
+          ))}
+          {isFetchingNextPage && (
+            <div className="flex justify-center py-4">
+              <Spinner className="text-text-primary" />
+            </div>
+          )}
+        </>
+      )}
+      <div className="absolute bottom-0 left-0 right-0 h-[5%] bg-gradient-to-t from-gray-50 to-transparent dark:from-gray-800" />
+    </MinimalMessagesWrapper>
   );
 }

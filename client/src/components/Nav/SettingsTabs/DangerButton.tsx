@@ -1,9 +1,8 @@
 import { forwardRef } from 'react';
-import type { ForwardedRef } from 'react';
 import { CheckIcon } from 'lucide-react';
-import { DialogButton } from '~/components/ui';
-import { Spinner } from '~/components/svg';
+import { Spinner, DialogButton, InfoHoverCard, ESide } from '@librechat/client';
 import type { TDangerButtonProps } from '~/common';
+import type { ForwardedRef } from 'react';
 import { useLocalize } from '~/hooks';
 import { cn } from '~/utils';
 
@@ -20,6 +19,7 @@ const DangerButton = (props: TDangerButtonProps, ref: ForwardedRef<HTMLButtonEle
     showText = true,
     dataTestIdInitial,
     dataTestIdConfirm,
+    infoDescriptionCode,
     confirmActionTextCode = 'com_ui_confirm_action',
   } = props;
   const localize = useLocalize();
@@ -33,14 +33,19 @@ const DangerButton = (props: TDangerButtonProps, ref: ForwardedRef<HTMLButtonEle
 
   return (
     <div className="flex items-center justify-between">
-      {showText && <div> {localize(infoTextCode)} </div>}
+      {showText && (
+        <div className={`flex items-center ${infoDescriptionCode ? 'space-x-2' : ''}`}>
+          <div>{localize(infoTextCode)}</div>
+          {infoDescriptionCode && <InfoHoverCard side={ESide.Bottom} text={infoDescriptionCode} />}
+        </div>
+      )}
       <DialogButton
         id={id}
         ref={ref}
         disabled={disabled}
         onClick={onClick}
         className={cn(
-          ' btn btn-danger relative border-none bg-red-700 text-white hover:bg-red-800 dark:hover:bg-red-800',
+          'btn relative border-none bg-red-500 text-white hover:bg-red-700 dark:hover:bg-red-700',
           className,
         )}
       >

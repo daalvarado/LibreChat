@@ -4,6 +4,8 @@ const traverse = require('traverse');
 
 const SPLAT_SYMBOL = Symbol.for('splat');
 const MESSAGE_SYMBOL = Symbol.for('message');
+const CONSOLE_JSON_STRING_LENGTH = parseInt(process.env.CONSOLE_JSON_STRING_LENGTH) || 255;
+const DEBUG_MESSAGE_LENGTH = parseInt(process.env.DEBUG_MESSAGE_LENGTH) || 150;
 
 const sensitiveKeys = [
   /^(sk-)[^\s]+/, // OpenAI API key pattern
@@ -27,21 +29,24 @@ function getMatchingSensitivePatterns(valueStr) {
 }
 
 /**
- * Redacts sensitive information from a console message.
- *
+ * Redacts sensitive information from a console message and trims it to a specified length if provided.
  * @param {string} str - The console message to be redacted.
- * @returns {string} - The redacted console message.
+ * @param {number} [trimLength] - The optional length at which to trim the redacted message.
+ * @returns {string} - The redacted and optionally trimmed console message.
  */
-function redactMessage(str) {
-  const patterns = getMatchingSensitivePatterns(str);
-
-  if (patterns.length === 0) {
-    return str;
+function redactMessage(str, trimLength) {
+  if (!str) {
+    return '';
   }
 
+  const patterns = getMatchingSensitivePatterns(str);
   patterns.forEach((pattern) => {
     str = str.replace(pattern, '$1[REDACTED]');
   });
+
+  if (trimLength !== undefined && str.length > trimLength) {
+    return `${str.substring(0, trimLength)}...`;
+  }
 
   return str;
 }
@@ -106,7 +111,15 @@ const condenseArray = (item) => {
  * @returns {string} - The formatted log message.
  */
 const debugTraverse = winston.format.printf(({ level, message, timestamp, ...metadata }) => {
-  let msg = `${timestamp} ${level}: ${truncateLongStrings(message?.trim(), 150)}`;
+  if (!message) {
+    return `${timestamp} ${level}`;
+  }
+
+  if (!message?.trim || typeof message !== 'string') {
+    return `${timestamp} ${level}: ${JSON.stringify(message)}`;
+  }
+
+  let msg = `${timestamp} ${level}: ${truncateLongStrings(message?.trim(), DEBUG_MESSAGE_LENGTH)}`;
   try {
     if (level !== 'debug') {
       return msg;
@@ -175,8 +188,45 @@ const debugTraverse = winston.format.printf(({ level, message, timestamp, ...met
   }
 });
 
+const jsonTruncateFormat = winston.format((info) => {
+  const truncateLongStrings = (str, maxLength) => {
+    return str.length > maxLength ? str.substring(0, maxLength) + '...' : str;
+  };
+
+  const seen = new WeakSet();
+
+  const truncateObject = (obj) => {
+    if (typeof obj !== 'object' || obj === null) {
+      return obj;
+    }
+
+    // Handle circular references
+    if (seen.has(obj)) {
+      return '[Circular]';
+    }
+    seen.add(obj);
+
+    if (Array.isArray(obj)) {
+      return obj.map((item) => truncateObject(item));
+    }
+
+    const newObj = {};
+    Object.entries(obj).forEach(([key, value]) => {
+      if (typeof value === 'string') {
+        newObj[key] = truncateLongStrings(value, CONSOLE_JSON_STRING_LENGTH);
+      } else {
+        newObj[key] = truncateObject(value);
+      }
+    });
+    return newObj;
+  };
+
+  return truncateObject(info);
+});
+
 module.exports = {
   redactFormat,
   redactMessage,
   debugTraverse,
+  jsonTruncateFormat,
 };

@@ -1,17 +1,17 @@
-import type { TModelSelectProps } from '~/common';
-import { ESide } from '~/common';
 import {
   Switch,
-  SelectDropDown,
   Label,
   Slider,
-  InputNumber,
   HoverCard,
+  InputNumber,
+  SelectDropDown,
   HoverCardTrigger,
-} from '~/components';
+} from '@librechat/client';
+import type { TModelSelectProps } from '~/common';
+import { cn, optionText, defaultTextProps, removeFocusRings } from '~/utils';
 import OptionHover from './OptionHover';
-import { cn, optionText, defaultTextProps, removeFocusOutlines } from '~/utils/';
 import { useLocalize } from '~/hooks';
+import { ESide } from '~/common';
 
 export default function Settings({ conversation, setOption, models, readonly }: TModelSelectProps) {
   const localize = useLocalize();
@@ -42,7 +42,7 @@ export default function Settings({ conversation, setOption, models, readonly }: 
             setValue={setModel}
             availableValues={models}
             disabled={readonly}
-            className={cn(defaultTextProps, 'flex w-full resize-none', removeFocusOutlines)}
+            className={cn(defaultTextProps, 'flex w-full resize-none', removeFocusRings)}
             containerClassName="flex w-full resize-none"
           />
         </div>
@@ -53,7 +53,9 @@ export default function Settings({ conversation, setOption, models, readonly }: 
             <div className="flex justify-between">
               <Label htmlFor="temp-int" className="text-left text-sm font-medium">
                 {localize('com_endpoint_temperature')}{' '}
-                <small className="opacity-40">({localize('com_endpoint_default')}: 0)</small>
+                <small className="opacity-40">
+                  ({localize('com_endpoint_default_with_num', { 0: '0' })})
+                </small>
               </Label>
               <InputNumber
                 id="temp-int"
@@ -77,18 +79,19 @@ export default function Settings({ conversation, setOption, models, readonly }: 
               disabled={readonly}
               value={[temperature ?? 0]}
               onValueChange={(value: number[]) => setTemperature(value[0])}
-              doubleClickHandler={() => setTemperature(1)}
+              onDoubleClick={() => setTemperature(1)}
               max={2}
               min={0}
               step={0.01}
               className="flex h-4 w-full"
+              aria-labelledby="temp-int"
             />
           </HoverCardTrigger>
           <OptionHover endpoint={conversation.endpoint ?? ''} type="temp" side={ESide.Left} />
         </HoverCard>
         <div className="grid w-full grid-cols-2 items-center gap-10">
           <HoverCard openDelay={500}>
-            <HoverCardTrigger className="w-[100px]">
+            <HoverCardTrigger className="flex w-[100px] flex-col items-center space-y-4 text-center">
               <label
                 htmlFor="functions-agent"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 dark:text-gray-50"
@@ -101,12 +104,13 @@ export default function Settings({ conversation, setOption, models, readonly }: 
                 onCheckedChange={onCheckedChangeAgent}
                 disabled={readonly}
                 className="ml-4 mt-2"
+                aria-label={localize('com_endpoint_plug_use_functions')}
               />
             </HoverCardTrigger>
             <OptionHover endpoint={conversation.endpoint ?? ''} type="func" side={ESide.Bottom} />
           </HoverCard>
           <HoverCard openDelay={500}>
-            <HoverCardTrigger className="ml-[-60px] w-[100px]">
+            <HoverCardTrigger className="ml-[-60px] flex w-[100px] flex-col items-center space-y-4 text-center">
               <label
                 htmlFor="skip-completion"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 dark:text-gray-50"
@@ -119,6 +123,7 @@ export default function Settings({ conversation, setOption, models, readonly }: 
                 onCheckedChange={onCheckedChangeSkip}
                 disabled={readonly}
                 className="ml-4 mt-2"
+                aria-label={localize('com_endpoint_plug_skip_completion')}
               />
             </HoverCardTrigger>
             <OptionHover endpoint={conversation.endpoint ?? ''} type="skip" side={ESide.Bottom} />

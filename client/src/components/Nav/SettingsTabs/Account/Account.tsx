@@ -1,17 +1,38 @@
-import * as Tabs from '@radix-ui/react-tabs';
-import Avatar from './Avatar';
 import React from 'react';
+import DisplayUsernameMessages from './DisplayUsernameMessages';
+import DeleteAccount from './DeleteAccount';
+import Avatar from './Avatar';
+import EnableTwoFactorItem from './TwoFactorAuthentication';
+import BackupCodesItem from './BackupCodesItem';
+import { useAuthContext } from '~/hooks';
 
 function Account() {
+  const { user } = useAuthContext();
+
   return (
-    <Tabs.Content value="account" role="tabpanel" className="w-full md:min-h-[300px]">
-      <div className="flex flex-col gap-3 text-sm text-gray-600 dark:text-gray-300">
-        <div className="border-b pb-3 last-of-type:border-b-0 dark:border-gray-700">
-          <Avatar />
-        </div>
+    <div className="flex flex-col gap-3 p-1 text-sm text-text-primary">
+      <div className="pb-3">
+        <DisplayUsernameMessages />
       </div>
-      <div className="border-b pb-3 last-of-type:border-b-0 dark:border-gray-700"></div>
-    </Tabs.Content>
+      <div className="pb-3">
+        <Avatar />
+      </div>
+      {user?.provider === 'local' && (
+        <>
+          <div className="pb-3">
+            <EnableTwoFactorItem />
+          </div>
+          {user?.twoFactorEnabled && (
+            <div className="pb-3">
+              <BackupCodesItem />
+            </div>
+          )}
+        </>
+      )}
+      <div className="pb-3">
+        <DeleteAccount />
+      </div>
+    </div>
   );
 }
 

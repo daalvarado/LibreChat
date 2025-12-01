@@ -1,61 +1,58 @@
+const {
+  Capabilities,
+  EModelEndpoint,
+  isAgentsEndpoint,
+  isAssistantsEndpoint,
+  defaultRetrievalModels,
+  defaultAssistantsVersion,
+  defaultAgentCapabilities,
+} = require('librechat-data-provider');
+const { sendEvent } = require('@librechat/api');
 const partialRight = require('lodash/partialRight');
-const { sendMessage } = require('./streamResponse');
-const { getCitations, citeText } = require('./citations');
-const cursor = '<span className="result-streaming">█</span>';
-const citationRegex = /\[\^\d+?\^]/g;
+
+/** Helper function to escape special characters in regex
+ * @param {string} string - The string to escape.
+ * @returns {string} The escaped string.
+ */
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 const addSpaceIfNeeded = (text) => (text.length > 0 && !text.endsWith(' ') ? text + ' ' : text);
 
-const createOnProgress = ({ generation = '', onProgress: _onProgress }) => {
+const base = { message: true, initial: true };
+const createOnProgress = (
+  { generation = '', onProgress: _onProgress } = {
+    generation: '',
+    onProgress: null,
+  },
+) => {
   let i = 0;
-  let code = '';
-  let precode = '';
-  let codeBlock = false;
   let tokens = addSpaceIfNeeded(generation);
 
-  const progressCallback = async (partial, { res, text, bing = false, ...rest }) => {
-    let chunk = partial === text ? '' : partial;
-    tokens += chunk;
-    precode += chunk;
-    tokens = tokens.replaceAll('[DONE]', '');
+  const basePayload = Object.assign({}, base, { text: tokens || '' });
 
-    if (codeBlock) {
-      code += chunk;
+  const progressCallback = (chunk, { res, ...rest }) => {
+    basePayload.text = basePayload.text + chunk;
+
+    const payload = Object.assign({}, basePayload, rest);
+    sendEvent(res, payload);
+    if (_onProgress) {
+      _onProgress(payload);
     }
-
-    if (precode.includes('```') && codeBlock) {
-      codeBlock = false;
-      precode = precode.replace(/```/g, '');
-      code = '';
+    if (i === 0) {
+      basePayload.initial = false;
     }
-
-    if (precode.includes('```') && code === '') {
-      precode = precode.replace(/```/g, '');
-      codeBlock = true;
-    }
-
-    if (tokens.match(/^\n(?!:::plugins:::)/)) {
-      tokens = tokens.replace(/^\n/, '');
-    }
-
-    if (bing) {
-      tokens = citeText(tokens, true);
-    }
-
-    const payload = { text: tokens, message: true, initial: i === 0, ...rest };
-    sendMessage(res, { ...payload, text: tokens });
-    _onProgress && _onProgress(payload);
     i++;
   };
 
   const sendIntermediateMessage = (res, payload, extraTokens = '') => {
-    tokens += extraTokens;
-    sendMessage(res, {
-      text: tokens?.length === 0 ? cursor : tokens,
-      message: true,
-      initial: i === 0,
-      ...payload,
-    });
+    basePayload.text = basePayload.text + extraTokens;
+    const message = Object.assign({}, basePayload, payload);
+    sendEvent(res, message);
+    if (i === 0) {
+      basePayload.initial = false;
+    }
     i++;
   };
 
@@ -64,24 +61,15 @@ const createOnProgress = ({ generation = '', onProgress: _onProgress }) => {
   };
 
   const getPartialText = () => {
-    return tokens;
+    return basePayload.text;
   };
 
   return { onProgress, getPartialText, sendIntermediateMessage };
 };
 
-const handleText = async (response, bing = false) => {
+const handleText = async (response) => {
   let { text } = response;
   response.text = text;
-
-  if (bing) {
-    const links = getCitations(response);
-    if (response.text.match(citationRegex)?.length > 0) {
-      text = citeText(response);
-    }
-    text += links?.length > 0 ? `\n- ${links}` : '';
-  }
-
   return text;
 };
 
@@ -138,34 +126,6 @@ function formatAction(action) {
 }
 
 /**
- * Checks if the given value is truthy by being either the boolean `true` or a string
- * that case-insensitively matches 'true'.
- *
- * @function
- * @param {string|boolean|null|undefined} value - The value to check.
- * @returns {boolean} Returns `true` if the value is the boolean `true` or a case-insensitive
- *                    match for the string 'true', otherwise returns `false`.
- * @example
- *
- * isEnabled("True");  // returns true
- * isEnabled("TRUE");  // returns true
- * isEnabled(true);    // returns true
- * isEnabled("false"); // returns false
- * isEnabled(false);   // returns false
- * isEnabled(null);    // returns false
- * isEnabled();        // returns false
- */
-function isEnabled(value) {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'string') {
-    return value.toLowerCase().trim() === 'true';
-  }
-  return false;
-}
-
-/**
  * Checks if the provided value is 'user_provided'.
  *
  * @param {string} value - The value to check.
@@ -174,25 +134,57 @@ function isEnabled(value) {
 const isUserProvided = (value) => value === 'user_provided';
 
 /**
- * Extracts the value of an environment variable from a string.
- * @param {string} value - The value to be processed, possibly containing an env variable placeholder.
- * @returns {string} - The actual value from the environment variable or the original value.
+ * Generate the configuration for a given key and base URL.
+ * @param {string} key
+ * @param {string} [baseURL]
+ * @param {string} [endpoint]
+ * @returns {boolean | { userProvide: boolean, userProvideURL?: boolean }}
  */
-function extractEnvVariable(value) {
-  const envVarMatch = value.match(/^\${(.+)}$/);
-  if (envVarMatch) {
-    return process.env[envVarMatch[1]] || value;
+function generateConfig(key, baseURL, endpoint) {
+  if (!key) {
+    return false;
   }
-  return value;
+
+  /** @type {{ userProvide: boolean, userProvideURL?: boolean }} */
+  const config = { userProvide: isUserProvided(key) };
+
+  if (baseURL) {
+    config.userProvideURL = isUserProvided(baseURL);
+  }
+
+  const assistants = isAssistantsEndpoint(endpoint);
+  const agents = isAgentsEndpoint(endpoint);
+  if (assistants) {
+    config.retrievalModels = defaultRetrievalModels;
+    config.capabilities = [
+      Capabilities.code_interpreter,
+      Capabilities.image_vision,
+      Capabilities.retrieval,
+      Capabilities.actions,
+      Capabilities.tools,
+    ];
+  }
+
+  if (agents) {
+    config.capabilities = defaultAgentCapabilities;
+  }
+
+  if (assistants && endpoint === EModelEndpoint.azureAssistants) {
+    config.version = defaultAssistantsVersion.azureAssistants;
+  } else if (assistants) {
+    config.version = defaultAssistantsVersion.assistants;
+  }
+
+  return config;
 }
 
 module.exports = {
-  createOnProgress,
-  isEnabled,
   handleText,
   formatSteps,
+  escapeRegExp,
   formatAction,
-  addSpaceIfNeeded,
   isUserProvided,
-  extractEnvVariable,
+  generateConfig,
+  addSpaceIfNeeded,
+  createOnProgress,
 };

@@ -1,40 +1,44 @@
-import type { TSubmission, TMessage, TEndpointOption } from './types';
-import { tConvoUpdateSchema, EModelEndpoint } from './schemas';
+import type * as t from './types';
 import { EndpointURLs } from './config';
+import * as s from './schemas';
 
-export default function createPayload(submission: TSubmission) {
-  const { conversation, message, messages, endpointOption, isEdited, isContinued } = submission;
-  const { conversationId } = tConvoUpdateSchema.parse(conversation);
-  const { endpoint, endpointType } = endpointOption as {
-    endpoint: EModelEndpoint;
-    endpointType?: EModelEndpoint;
+export default function createPayload(submission: t.TSubmission) {
+  const {
+    isEdited,
+    userMessage,
+    isContinued,
+    isTemporary,
+    isRegenerate,
+    conversation,
+    editedContent,
+    ephemeralAgent,
+    endpointOption,
+  } = submission;
+  const { conversationId } = s.tConvoUpdateSchema.parse(conversation);
+  const { endpoint: _e, endpointType } = endpointOption as {
+    endpoint: s.EModelEndpoint;
+    endpointType?: s.EModelEndpoint;
   };
 
-  let server = EndpointURLs[endpointType ?? endpoint];
-
-  if (isEdited && endpoint === EModelEndpoint.assistant) {
-    server += '/modify';
-  } else if (isEdited) {
-    server = server.replace('/ask/', '/edit/');
+  const endpoint = _e as s.EModelEndpoint;
+  let server = `${EndpointURLs[s.EModelEndpoint.agents]}/${endpoint}`;
+  if (s.isAssistantsEndpoint(endpoint)) {
+    server =
+      EndpointURLs[(endpointType ?? endpoint) as 'assistants' | 'azureAssistants'] +
+      (isEdited ? '/modify' : '');
   }
 
-  type Payload = Partial<TMessage> &
-    Partial<TEndpointOption> & {
-      isContinued: boolean;
-      conversationId: string | null;
-      messages?: typeof messages;
-    };
-
-  const payload: Payload = {
-    ...message,
+  const payload: t.TPayload = {
+    ...userMessage,
     ...endpointOption,
-    isContinued: !!(isEdited && isContinued),
+    endpoint,
+    isTemporary,
+    isRegenerate,
+    editedContent,
     conversationId,
+    isContinued: !!(isEdited && isContinued),
+    ephemeralAgent: s.isAssistantsEndpoint(endpoint) ? undefined : ephemeralAgent,
   };
-
-  if (endpoint === EModelEndpoint.assistant) {
-    payload.messages = messages;
-  }
 
   return { server, payload };
 }

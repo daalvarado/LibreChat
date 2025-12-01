@@ -1,133 +1,117 @@
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useGetStartupConfig } from 'librechat-data-provider/react-query';
-import { GoogleIcon, FacebookIcon, OpenIDIcon, GithubIcon, DiscordIcon } from '~/components';
+import { useEffect, useState } from 'react';
+import { ErrorTypes, registerPage } from 'librechat-data-provider';
+import { OpenIDIcon, useToastContext } from '@librechat/client';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
+import type { TLoginLayoutContext } from '~/common';
+import { ErrorMessage } from '~/components/Auth/ErrorMessage';
+import SocialButton from '~/components/Auth/SocialButton';
 import { useAuthContext } from '~/hooks/AuthContext';
 import { getLoginError } from '~/utils';
 import { useLocalize } from '~/hooks';
 import LoginForm from './LoginForm';
 
 function Login() {
-  const { login, error, isAuthenticated } = useAuthContext();
-  const { data: startupConfig } = useGetStartupConfig();
   const localize = useLocalize();
+  const { showToast } = useToastContext();
+  const { error, setError, login } = useAuthContext();
+  const { startupConfig } = useOutletContext<TLoginLayoutContext>();
 
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Determine if auto-redirect should be disabled based on the URL parameter
+  const disableAutoRedirect = searchParams.get('redirect') === 'false';
+
+  // Persist the disable flag locally so that once detected, auto-redirect stays disabled.
+  const [isAutoRedirectDisabled, setIsAutoRedirectDisabled] = useState(disableAutoRedirect);
 
   useEffect(() => {
-    if (isAuthenticated) {
-      navigate('/c/new', { replace: true });
+    const oauthError = searchParams?.get('error');
+    if (oauthError && oauthError === ErrorTypes.AUTH_FAILED) {
+      showToast({
+        message: localize('com_auth_error_oauth_failed'),
+        status: 'error',
+      });
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('error');
+      setSearchParams(newParams, { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [searchParams, setSearchParams, showToast, localize]);
+
+  // Once the disable flag is detected, update local state and remove the parameter from the URL.
+  useEffect(() => {
+    if (disableAutoRedirect) {
+      setIsAutoRedirectDisabled(true);
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('redirect');
+      setSearchParams(newParams, { replace: true });
+    }
+  }, [disableAutoRedirect, searchParams, setSearchParams]);
+
+  // Determine whether we should auto-redirect to OpenID.
+  const shouldAutoRedirect =
+    startupConfig?.openidLoginEnabled &&
+    startupConfig?.openidAutoRedirect &&
+    startupConfig?.serverDomain &&
+    !isAutoRedirectDisabled;
+
+  useEffect(() => {
+    if (shouldAutoRedirect) {
+      console.log('Auto-redirecting to OpenID provider...');
+      window.location.href = `${startupConfig.serverDomain}/oauth/openid`;
+    }
+  }, [shouldAutoRedirect, startupConfig]);
+
+  // Render fallback UI if auto-redirect is active.
+  if (shouldAutoRedirect) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center p-4">
+        <p className="text-lg font-semibold">
+          {localize('com_ui_redirecting_to_provider', { 0: startupConfig.openidLabel })}
+        </p>
+        <div className="mt-4">
+          <SocialButton
+            key="openid"
+            enabled={startupConfig.openidLoginEnabled}
+            serverDomain={startupConfig.serverDomain}
+            oauthPath="openid"
+            Icon={() =>
+              startupConfig.openidImageUrl ? (
+                <img src={startupConfig.openidImageUrl} alt="OpenID Logo" className="h-5 w-5" />
+              ) : (
+                <OpenIDIcon />
+              )
+            }
+            label={startupConfig.openidLabel}
+            id="openid"
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-white pt-6 sm:pt-0">
-      <div className="mt-6 w-96 overflow-hidden bg-white px-6 py-4 sm:max-w-md sm:rounded-lg">
-        <h1 className="mb-4 text-center text-3xl font-semibold">
-          {localize('com_auth_welcome_back')}
-        </h1>
-        {error && (
-          <div
-            className="relative mt-4 rounded border border-red-400 bg-red-100 px-4 py-3 text-red-700"
-            role="alert"
+    <>
+      {error != null && <ErrorMessage>{localize(getLoginError(error))}</ErrorMessage>}
+      {startupConfig?.emailLoginEnabled === true && (
+        <LoginForm
+          onSubmit={login}
+          startupConfig={startupConfig}
+          error={error}
+          setError={setError}
+        />
+      )}
+      {startupConfig?.registrationEnabled === true && (
+        <p className="my-4 text-center text-sm font-light text-gray-700 dark:text-white">
+          {' '}
+          {localize('com_auth_no_account')}{' '}
+          <a
+            href={registerPage()}
+            className="inline-flex p-1 text-sm font-medium text-green-600 transition-colors hover:text-green-700 dark:text-green-400 dark:hover:text-green-300"
           >
-            {localize(getLoginError(error))}
-          </div>
-        )}
-        {startupConfig?.emailLoginEnabled && <LoginForm onSubmit={login} />}
-        {startupConfig?.registrationEnabled && (
-          <p className="my-4 text-center text-sm font-light text-gray-700">
-            {' '}
-            {localize('com_auth_no_account')}{' '}
-            <a href="/register" className="p-1 font-medium text-green-500 hover:underline">
-              {localize('com_auth_sign_up')}
-            </a>
-          </p>
-        )}
-        {startupConfig?.socialLoginEnabled && startupConfig?.emailLoginEnabled && (
-          <>
-            <div className="relative mt-6 flex w-full items-center justify-center border border-t uppercase">
-              <div className="absolute bg-white px-3 text-xs">Or</div>
-            </div>
-            <div className="mt-8" />
-          </>
-        )}
-        {startupConfig?.googleLoginEnabled && startupConfig?.socialLoginEnabled && (
-          <>
-            <div className="mt-2 flex gap-x-2">
-              <a
-                aria-label="Login with Google"
-                className="justify-left flex w-full items-center space-x-3 rounded-md border border-gray-300 px-5 py-3 hover:bg-gray-50 focus:ring-2 focus:ring-violet-600 focus:ring-offset-1"
-                href={`${startupConfig.serverDomain}/oauth/google`}
-              >
-                <GoogleIcon />
-                <p>{localize('com_auth_google_login')}</p>
-              </a>
-            </div>
-          </>
-        )}
-        {startupConfig?.facebookLoginEnabled && startupConfig?.socialLoginEnabled && (
-          <>
-            <div className="mt-2 flex gap-x-2">
-              <a
-                aria-label="Login with Facebook"
-                className="justify-left flex w-full items-center space-x-3 rounded-md border border-gray-300 px-5 py-3 hover:bg-gray-50 focus:ring-2 focus:ring-violet-600 focus:ring-offset-1"
-                href={`${startupConfig.serverDomain}/oauth/facebook`}
-              >
-                <FacebookIcon />
-                <p>{localize('com_auth_facebook_login')}</p>
-              </a>
-            </div>
-          </>
-        )}
-        {startupConfig?.openidLoginEnabled && startupConfig?.socialLoginEnabled && (
-          <>
-            <div className="mt-2 flex gap-x-2">
-              <a
-                aria-label="Login with OpenID"
-                className="justify-left flex w-full items-center space-x-3 rounded-md border border-gray-300 px-5 py-3 hover:bg-gray-50 focus:ring-2 focus:ring-violet-600 focus:ring-offset-1"
-                href={`${startupConfig.serverDomain}/oauth/openid`}
-              >
-                {startupConfig.openidImageUrl ? (
-                  <img src={startupConfig.openidImageUrl} alt="OpenID Logo" className="h-5 w-5" />
-                ) : (
-                  <OpenIDIcon />
-                )}
-                <p>{startupConfig.openidLabel}</p>
-              </a>
-            </div>
-          </>
-        )}
-        {startupConfig?.githubLoginEnabled && startupConfig?.socialLoginEnabled && (
-          <>
-            <div className="mt-2 flex gap-x-2">
-              <a
-                aria-label="Login with GitHub"
-                className="justify-left flex w-full items-center space-x-3 rounded-md border border-gray-300 px-5 py-3 hover:bg-gray-50 focus:ring-2 focus:ring-violet-600 focus:ring-offset-1"
-                href={`${startupConfig.serverDomain}/oauth/github`}
-              >
-                <GithubIcon />
-                <p>{localize('com_auth_github_login')}</p>
-              </a>
-            </div>
-          </>
-        )}
-        {startupConfig?.discordLoginEnabled && startupConfig?.socialLoginEnabled && (
-          <>
-            <div className="mt-2 flex gap-x-2">
-              <a
-                aria-label="Login with Discord"
-                className="justify-left flex w-full items-center space-x-3 rounded-md border border-gray-300 px-5 py-3 hover:bg-gray-50 focus:ring-2 focus:ring-violet-600 focus:ring-offset-1"
-                href={`${startupConfig.serverDomain}/oauth/discord`}
-              >
-                <DiscordIcon />
-                <p>{localize('com_auth_discord_login')}</p>
-              </a>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+            {localize('com_auth_sign_up')}
+          </a>
+        </p>
+      )}
+    </>
   );
 }
 

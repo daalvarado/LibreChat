@@ -1,44 +1,90 @@
-import { useLocalize, useConversation, useNewConvo, useOriginNavigate } from '~/hooks';
+import React, { useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { QueryKeys, Constants } from 'librechat-data-provider';
+import { TooltipAnchor, NewChatIcon, MobileSidebar, Sidebar, Button } from '@librechat/client';
+import type { TMessage } from 'librechat-data-provider';
+import { useLocalize, useNewConvo } from '~/hooks';
+import { clearMessagesCache } from '~/utils';
+import store from '~/store';
 
-export default function NewChat({ toggleNav }: { toggleNav: () => void }) {
-  const { newConversation } = useConversation();
-  const { newConversation: newConvo } = useNewConvo();
-  const navigate = useOriginNavigate();
+export default function NewChat({
+  index = 0,
+  toggleNav,
+  subHeaders,
+  isSmallScreen,
+  headerButtons,
+}: {
+  index?: number;
+  toggleNav: () => void;
+  isSmallScreen?: boolean;
+  subHeaders?: React.ReactNode;
+  headerButtons?: React.ReactNode;
+}) {
+  const queryClient = useQueryClient();
+  /** Note: this component needs an explicit index passed if using more than one */
+  const { newConversation: newConvo } = useNewConvo(index);
+  const navigate = useNavigate();
   const localize = useLocalize();
+  const { conversation } = store.useCreateConversationAtom(index);
 
-  const clickHandler = (event: React.MouseEvent<HTMLAnchorElement>) => {
-    if (event.button === 0 && !event.ctrlKey) {
-      event.preventDefault();
+  const clickHandler: React.MouseEventHandler<HTMLButtonElement> = useCallback(
+    (e) => {
+      if (e.button === 0 && (e.ctrlKey || e.metaKey)) {
+        window.open('/c/new', '_blank');
+        return;
+      }
+      clearMessagesCache(queryClient, conversation?.conversationId);
+      queryClient.invalidateQueries([QueryKeys.messages]);
       newConvo();
-      newConversation();
-      navigate('new');
-      toggleNav();
-    }
-  };
+      navigate('/c/new', { state: { focusChat: true } });
+      if (isSmallScreen) {
+        toggleNav();
+      }
+    },
+    [queryClient, conversation, newConvo, navigate, toggleNav, isSmallScreen],
+  );
 
   return (
-    <a
-      href="/"
-      data-testid="nav-new-chat-button"
-      onClick={clickHandler}
-      className="flex h-11 flex-shrink-0 flex-grow cursor-pointer items-center gap-3 rounded-md border border-white/20 px-3 py-3 text-sm text-white transition-colors duration-200 hover:bg-gray-500/10"
-    >
-      <svg
-        stroke="currentColor"
-        fill="none"
-        strokeWidth="2"
-        viewBox="0 0 24 24"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="h-4 w-4"
-        height="1em"
-        width="1em"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        <line x1="12" y1="5" x2="12" y2="19" />
-        <line x1="5" y1="12" x2="19" y2="12" />
-      </svg>
-      {localize('com_ui_new_chat')}
-    </a>
+    <>
+      <div className="flex items-center justify-between py-[2px] md:py-2">
+        <TooltipAnchor
+          description={localize('com_nav_close_sidebar')}
+          render={
+            <Button
+              size="icon"
+              variant="outline"
+              data-testid="close-sidebar-button"
+              aria-label={localize('com_nav_close_sidebar')}
+              className="rounded-full border-none bg-transparent p-2 hover:bg-surface-hover md:rounded-xl"
+              onClick={toggleNav}
+            >
+              <Sidebar className="max-md:hidden" />
+              <MobileSidebar className="m-1 inline-flex size-10 items-center justify-center md:hidden" />
+            </Button>
+          }
+        />
+        <div className="flex gap-0.5">
+          {headerButtons}
+
+          <TooltipAnchor
+            description={localize('com_ui_new_chat')}
+            render={
+              <Button
+                size="icon"
+                variant="outline"
+                data-testid="nav-new-chat-button"
+                aria-label={localize('com_ui_new_chat')}
+                className="rounded-full border-none bg-transparent p-2 hover:bg-surface-hover md:rounded-xl"
+                onClick={clickHandler}
+              >
+                <NewChatIcon className="icon-lg text-text-primary" />
+              </Button>
+            }
+          />
+        </div>
+      </div>
+      {subHeaders != null ? subHeaders : null}
+    </>
   );
 }

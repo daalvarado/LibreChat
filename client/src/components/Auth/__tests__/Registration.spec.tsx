@@ -1,9 +1,38 @@
-import { render, waitFor, screen } from 'test/layout-test-utils';
+import reactRouter from 'react-router-dom';
 import userEvent from '@testing-library/user-event';
-import Registration from '../Registration';
+import { render, waitFor, screen } from 'test/layout-test-utils';
 import * as mockDataProvider from 'librechat-data-provider/react-query';
+import type { TStartupConfig } from 'librechat-data-provider';
+import * as miscDataProvider from '~/data-provider/Misc/queries';
+import * as endpointQueries from '~/data-provider/Endpoints/queries';
+import * as authMutations from '~/data-provider/Auth/mutations';
+import * as authQueries from '~/data-provider/Auth/queries';
+import Registration from '~/components/Auth/Registration';
+import AuthLayout from '~/components/Auth/AuthLayout';
 
 jest.mock('librechat-data-provider/react-query');
+
+const mockStartupConfig = {
+  isFetching: false,
+  isLoading: false,
+  isError: false,
+  data: {
+    socialLogins: ['google', 'facebook', 'openid', 'github', 'discord', 'saml'],
+    discordLoginEnabled: true,
+    facebookLoginEnabled: true,
+    githubLoginEnabled: true,
+    googleLoginEnabled: true,
+    openidLoginEnabled: true,
+    openidLabel: 'Test OpenID',
+    openidImageUrl: 'http://test-server.com',
+    samlLoginEnabled: true,
+    samlLabel: 'Test SAML',
+    samlImageUrl: 'http://test-server.com',
+    registrationEnabled: true,
+    socialLoginEnabled: true,
+    serverDomain: 'mock-server',
+  },
+};
 
 const setup = ({
   useGetUserQueryReturnValue = {
@@ -28,50 +57,65 @@ const setup = ({
       user: {},
     },
   },
-  useGetStartupCongfigReturnValue = {
+  useGetBannerQueryReturnValue = {
     isLoading: false,
     isError: false,
-    data: {
-      googleLoginEnabled: true,
-      facebookLoginEnabled: true,
-      openidLoginEnabled: true,
-      openidLabel: 'Test OpenID',
-      openidImageUrl: 'http://test-server.com',
-      githubLoginEnabled: true,
-      discordLoginEnabled: true,
-      emailLoginEnabled: true,
-      registrationEnabled: true,
-      socialLoginEnabled: true,
-      serverDomain: 'mock-server',
-    },
+    data: {},
   },
+  useGetStartupConfigReturnValue = mockStartupConfig,
 } = {}) => {
   const mockUseRegisterUserMutation = jest
     .spyOn(mockDataProvider, 'useRegisterUserMutation')
     //@ts-ignore - we don't need all parameters of the QueryObserverSuccessResult
     .mockReturnValue(useRegisterUserMutationReturnValue);
   const mockUseGetUserQuery = jest
-    .spyOn(mockDataProvider, 'useGetUserQuery')
+    .spyOn(authQueries, 'useGetUserQuery')
     //@ts-ignore - we don't need all parameters of the QueryObserverSuccessResult
     .mockReturnValue(useGetUserQueryReturnValue);
   const mockUseGetStartupConfig = jest
-    .spyOn(mockDataProvider, 'useGetStartupConfig')
+    .spyOn(endpointQueries, 'useGetStartupConfig')
     //@ts-ignore - we don't need all parameters of the QueryObserverSuccessResult
-    .mockReturnValue(useGetStartupCongfigReturnValue);
+    .mockReturnValue(useGetStartupConfigReturnValue);
   const mockUseRefreshTokenMutation = jest
-    .spyOn(mockDataProvider, 'useRefreshTokenMutation')
+    .spyOn(authMutations, 'useRefreshTokenMutation')
     //@ts-ignore - we don't need all parameters of the QueryObserverSuccessResult
     .mockReturnValue(useRefreshTokenMutationReturnValue);
-  const renderResult = render(<Registration />);
+  const mockUseOutletContext = jest.spyOn(reactRouter, 'useOutletContext').mockReturnValue({
+    startupConfig: useGetStartupConfigReturnValue.data,
+  });
+  const mockUseGetBannerQuery = jest
+    .spyOn(miscDataProvider, 'useGetBannerQuery')
+    //@ts-ignore - we don't need all parameters of the QueryObserverSuccessResult
+    .mockReturnValue(useGetBannerQueryReturnValue);
+  const renderResult = render(
+    <AuthLayout
+      startupConfig={useGetStartupConfigReturnValue.data as TStartupConfig}
+      isFetching={useGetStartupConfigReturnValue.isFetching}
+      error={null}
+      startupConfigError={null}
+      header={'Create your account'}
+      pathname="register"
+    >
+      <Registration />
+    </AuthLayout>,
+  );
 
   return {
     ...renderResult,
-    mockUseRegisterUserMutation,
     mockUseGetUserQuery,
+    mockUseOutletContext,
     mockUseGetStartupConfig,
+    mockUseRegisterUserMutation,
     mockUseRefreshTokenMutation,
   };
 };
+
+jest.mock('react-router-dom', () => ({
+  ...jest.requireActual('react-router-dom'),
+  useOutletContext: () => ({
+    startupConfig: mockStartupConfig,
+  }),
+}));
 
 test('renders registration form', () => {
   const { getByText, getByTestId, getByRole } = setup();
@@ -85,25 +129,30 @@ test('renders registration form', () => {
   expect(getByRole('button', { name: /Submit registration/i })).toBeInTheDocument();
   expect(getByRole('link', { name: 'Login' })).toBeInTheDocument();
   expect(getByRole('link', { name: 'Login' })).toHaveAttribute('href', '/login');
-  expect(getByRole('link', { name: /Login with Google/i })).toBeInTheDocument();
-  expect(getByRole('link', { name: /Login with Google/i })).toHaveAttribute(
+  expect(getByRole('link', { name: /Continue with Google/i })).toBeInTheDocument();
+  expect(getByRole('link', { name: /Continue with Google/i })).toHaveAttribute(
     'href',
     'mock-server/oauth/google',
   );
-  expect(getByRole('link', { name: /Login with Facebook/i })).toBeInTheDocument();
-  expect(getByRole('link', { name: /Login with Facebook/i })).toHaveAttribute(
+  expect(getByRole('link', { name: /Continue with Facebook/i })).toBeInTheDocument();
+  expect(getByRole('link', { name: /Continue with Facebook/i })).toHaveAttribute(
     'href',
     'mock-server/oauth/facebook',
   );
-  expect(getByRole('link', { name: /Login with Github/i })).toBeInTheDocument();
-  expect(getByRole('link', { name: /Login with Github/i })).toHaveAttribute(
+  expect(getByRole('link', { name: /Continue with Github/i })).toBeInTheDocument();
+  expect(getByRole('link', { name: /Continue with Github/i })).toHaveAttribute(
     'href',
     'mock-server/oauth/github',
   );
-  expect(getByRole('link', { name: /Login with Discord/i })).toBeInTheDocument();
-  expect(getByRole('link', { name: /Login with Discord/i })).toHaveAttribute(
+  expect(getByRole('link', { name: /Continue with Discord/i })).toBeInTheDocument();
+  expect(getByRole('link', { name: /Continue with Discord/i })).toHaveAttribute(
     'href',
     'mock-server/oauth/discord',
+  );
+  expect(getByRole('link', { name: /Test SAML/i })).toBeInTheDocument();
+  expect(getByRole('link', { name: /Test SAML/i })).toHaveAttribute(
+    'href',
+    'mock-server/oauth/saml',
   );
 });
 

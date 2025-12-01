@@ -1,119 +1,101 @@
-import React, { useState, useEffect } from 'react';
-import type { TMessage } from 'librechat-data-provider';
-import rehypeHighlight from 'rehype-highlight';
-import type { PluggableList } from 'unified';
-import ReactMarkdown from 'react-markdown';
+import React, { memo, useMemo } from 'react';
+import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
 import supersub from 'remark-supersub';
 import rehypeKatex from 'rehype-katex';
-import remarkMath from 'remark-math';
-import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
-import { useChatContext } from '~/Providers';
-import { langSubset, validateIframe } from '~/utils';
-import CodeBlock from '~/components/Messages/Content/CodeBlock';
-
-type TCodeProps = {
-  inline: boolean;
-  className: string;
-  children: React.ReactNode;
-};
+import { useRecoilValue } from 'recoil';
+import ReactMarkdown from 'react-markdown';
+import rehypeHighlight from 'rehype-highlight';
+import remarkDirective from 'remark-directive';
+import type { Pluggable } from 'unified';
+import { Citation, CompositeCitation, HighlightedText } from '~/components/Web/Citation';
+import { Artifact, artifactPlugin } from '~/components/Artifacts/Artifact';
+import { ArtifactProvider, CodeBlockProvider } from '~/Providers';
+import MarkdownErrorBoundary from './MarkdownErrorBoundary';
+import { langSubset, preprocessLaTeX } from '~/utils';
+import { unicodeCitation } from '~/components/Web';
+import { code, a, p, img } from './MarkdownComponents';
+import store from '~/store';
 
 type TContentProps = {
   content: string;
-  message: TMessage;
-  showCursor?: boolean;
+  isLatestMessage: boolean;
 };
 
-const code = React.memo(({ inline, className, children }: TCodeProps) => {
-  const match = /language-(\w+)/.exec(className || '');
-  const lang = match && match[1];
+const Markdown = memo(({ content = '', isLatestMessage }: TContentProps) => {
+  const LaTeXParsing = useRecoilValue<boolean>(store.LaTeXParsing);
+  const isInitializing = content === '';
 
-  if (inline) {
-    return <code className={className}>{children}</code>;
-  } else {
-    return <CodeBlock lang={lang || 'text'} codeChildren={children} />;
-  }
-});
-
-const p = React.memo(({ children }: { children: React.ReactNode }) => {
-  return <p className="mb-2 whitespace-pre-wrap">{children}</p>;
-});
-
-const Markdown = React.memo(({ content, message, showCursor }: TContentProps) => {
-  const [cursor, setCursor] = useState('█');
-  const { isSubmitting, latestMessage } = useChatContext();
-  const isInitializing = content === '<span className="result-streaming">█</span>';
-
-  const { isEdited, messageId } = message ?? {};
-  const isLatestMessage = messageId === latestMessage?.messageId;
-  const currentContent = content?.replace('z-index: 1;', '') ?? '';
-
-  useEffect(() => {
-    let timer1: NodeJS.Timeout, timer2: NodeJS.Timeout;
-
-    if (!showCursor) {
-      setCursor('ㅤ');
-      return;
+  const currentContent = useMemo(() => {
+    if (isInitializing) {
+      return '';
     }
+    return LaTeXParsing ? preprocessLaTeX(content) : content;
+  }, [content, LaTeXParsing, isInitializing]);
 
-    if (isSubmitting && isLatestMessage) {
-      timer1 = setInterval(() => {
-        setCursor('ㅤ');
-        timer2 = setTimeout(() => {
-          setCursor('█');
-        }, 200);
-      }, 1000);
-    } else {
-      setCursor('ㅤ');
-    }
-
-    // This is the cleanup function that React will run when the component unmounts
-    return () => {
-      clearInterval(timer1);
-      clearTimeout(timer2);
-    };
-  }, [isSubmitting, isLatestMessage, showCursor]);
-
-  const rehypePlugins: PluggableList = [
-    [rehypeKatex, { output: 'mathml' }],
-    [
-      rehypeHighlight,
-      {
-        detect: true,
-        ignoreMissing: true,
-        subset: langSubset,
-      },
+  const rehypePlugins = useMemo(
+    () => [
+      [rehypeKatex],
+      [
+        rehypeHighlight,
+        {
+          detect: true,
+          ignoreMissing: true,
+          subset: langSubset,
+        },
+      ],
     ],
-    [rehypeRaw],
+    [],
+  );
+
+  const remarkPlugins: Pluggable[] = [
+    supersub,
+    remarkGfm,
+    remarkDirective,
+    artifactPlugin,
+    [remarkMath, { singleDollarTextMath: false }],
+    unicodeCitation,
   ];
 
-  let isValidIframe: string | boolean | null = false;
-  if (!isEdited) {
-    isValidIframe = validateIframe(currentContent);
-  }
-
-  if (isEdited || ((!isInitializing || !isLatestMessage) && !isValidIframe)) {
-    rehypePlugins.pop();
+  if (isInitializing) {
+    return (
+      <div className="absolute">
+        <p className="relative">
+          <span className={isLatestMessage ? 'result-thinking' : ''} />
+        </p>
+      </div>
+    );
   }
 
   return (
-    <ReactMarkdown
-      remarkPlugins={[supersub, remarkGfm, [remarkMath, { singleDollarTextMath: true }]]}
-      rehypePlugins={rehypePlugins}
-      linkTarget="_new"
-      components={
-        {
-          code,
-          p,
-        } as {
-          [nodeType: string]: React.ElementType;
-        }
-      }
-    >
-      {isLatestMessage && isSubmitting && !isInitializing
-        ? currentContent + cursor
-        : currentContent}
-    </ReactMarkdown>
+    <MarkdownErrorBoundary content={content} codeExecution={true}>
+      <ArtifactProvider>
+        <CodeBlockProvider>
+          <ReactMarkdown
+            /** @ts-ignore */
+            remarkPlugins={remarkPlugins}
+            /* @ts-ignore */
+            rehypePlugins={rehypePlugins}
+            components={
+              {
+                code,
+                a,
+                p,
+                img,
+                artifact: Artifact,
+                citation: Citation,
+                'highlighted-text': HighlightedText,
+                'composite-citation': CompositeCitation,
+              } as {
+                [nodeType: string]: React.ElementType;
+              }
+            }
+          >
+            {currentContent}
+          </ReactMarkdown>
+        </CodeBlockProvider>
+      </ArtifactProvider>
+    </MarkdownErrorBoundary>
   );
 });
 

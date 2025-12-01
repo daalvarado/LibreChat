@@ -1,42 +1,29 @@
-const { EModelEndpoint } = require('librechat-data-provider');
+const { EModelEndpoint, getEnabledEndpoints } = require('librechat-data-provider');
 const loadAsyncEndpoints = require('./loadAsyncEndpoints');
 const { config } = require('./EndpointService');
 
 /**
  * Load async endpoints and return a configuration object
- * @function loadDefaultEndpointsConfig
+ * @param {AppConfig} appConfig - The app configuration object
  * @returns {Promise<Object.<string, EndpointWithOrder>>} An object whose keys are endpoint names and values are objects that contain the endpoint configuration and an order.
  */
-async function loadDefaultEndpointsConfig() {
-  const { google, gptPlugins } = await loadAsyncEndpoints();
-  const { openAI, bingAI, anthropic, azureOpenAI, chatGPTBrowser } = config;
+async function loadDefaultEndpointsConfig(appConfig) {
+  const { google, gptPlugins } = await loadAsyncEndpoints(appConfig);
+  const { assistants, azureAssistants, azureOpenAI, chatGPTBrowser } = config;
 
-  let enabledEndpoints = [
-    EModelEndpoint.openAI,
-    EModelEndpoint.azureOpenAI,
-    EModelEndpoint.google,
-    EModelEndpoint.bingAI,
-    EModelEndpoint.chatGPTBrowser,
-    EModelEndpoint.gptPlugins,
-    EModelEndpoint.anthropic,
-  ];
-
-  const endpointsEnv = process.env.ENDPOINTS || '';
-  if (endpointsEnv) {
-    enabledEndpoints = endpointsEnv
-      .split(',')
-      .filter((endpoint) => endpoint?.trim())
-      .map((endpoint) => endpoint.trim());
-  }
+  const enabledEndpoints = getEnabledEndpoints();
 
   const endpointConfig = {
-    [EModelEndpoint.openAI]: openAI,
+    [EModelEndpoint.openAI]: config[EModelEndpoint.openAI],
+    [EModelEndpoint.agents]: config[EModelEndpoint.agents],
+    [EModelEndpoint.assistants]: assistants,
+    [EModelEndpoint.azureAssistants]: azureAssistants,
     [EModelEndpoint.azureOpenAI]: azureOpenAI,
     [EModelEndpoint.google]: google,
-    [EModelEndpoint.bingAI]: bingAI,
     [EModelEndpoint.chatGPTBrowser]: chatGPTBrowser,
     [EModelEndpoint.gptPlugins]: gptPlugins,
-    [EModelEndpoint.anthropic]: anthropic,
+    [EModelEndpoint.anthropic]: config[EModelEndpoint.anthropic],
+    [EModelEndpoint.bedrock]: config[EModelEndpoint.bedrock],
   };
 
   const orderedAndFilteredEndpoints = enabledEndpoints.reduce((config, key, index) => {

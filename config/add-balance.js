@@ -1,8 +1,11 @@
 const path = require('path');
+const mongoose = require('mongoose');
+const { getBalanceConfig } = require('@librechat/api');
+const { User } = require('@librechat/data-schemas').createModels(mongoose);
 require('module-alias')({ base: path.resolve(__dirname, '..', 'api') });
+const { createTransaction } = require('~/models/Transaction');
+const { getAppConfig } = require('~/server/services/Config');
 const { askQuestion, silentExit } = require('./helpers');
-const Transaction = require('~/models/Transaction');
-const User = require('~/models/User');
 const connect = require('./connect');
 
 (async () => {
@@ -30,9 +33,12 @@ const connect = require('./connect');
     // console.purple(`[DEBUG] Args Length: ${process.argv.length}`);
   }
 
-  if (!process.env.CHECK_BALANCE) {
+  const appConfig = await getAppConfig();
+  const balanceConfig = getBalanceConfig(appConfig);
+
+  if (!balanceConfig?.enabled) {
     console.red(
-      'Error: CHECK_BALANCE environment variable is not set! Configure it to use it: `CHECK_BALANCE=true`',
+      'Error: Balance is not enabled. Use librechat.yaml to enable it',
     );
     silentExit(1);
   }
@@ -71,11 +77,12 @@ const connect = require('./connect');
    */
   let result;
   try {
-    result = await Transaction.create({
+    result = await createTransaction({
       user: user._id,
       tokenType: 'credits',
       context: 'admin',
       rawAmount: +amount,
+      balance: balanceConfig,
     });
   } catch (error) {
     console.red('Error: ' + error.message);
@@ -84,7 +91,7 @@ const connect = require('./connect');
   }
 
   // Check the result
-  if (!result?.tokenCredits) {
+  if (!result?.balance) {
     console.red('Error: Something went wrong while updating the balance!');
     console.error(result);
     silentExit(1);
@@ -93,7 +100,7 @@ const connect = require('./connect');
   // Done!
   console.green('Transaction created successfully!');
   console.purple(`Amount: ${amount}
-New Balance: ${result.tokenCredits}`);
+New Balance: ${result.balance}`);
   silentExit(0);
 })();
 

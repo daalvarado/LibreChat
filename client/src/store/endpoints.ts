@@ -4,9 +4,10 @@ import type { TEndpointsConfig } from 'librechat-data-provider';
 
 const defaultConfig: TEndpointsConfig = {
   [EModelEndpoint.azureOpenAI]: null,
-  [EModelEndpoint.assistant]: null,
+  [EModelEndpoint.azureAssistants]: null,
+  [EModelEndpoint.assistants]: null,
+  [EModelEndpoint.agents]: null,
   [EModelEndpoint.openAI]: null,
-  [EModelEndpoint.bingAI]: null,
   [EModelEndpoint.chatGPTBrowser]: null,
   [EModelEndpoint.gptPlugins]: null,
   [EModelEndpoint.google]: null,
@@ -28,7 +29,7 @@ const plugins = selector({
   key: 'plugins',
   get: ({ get }) => {
     const config = get(endpointsConfig) || {};
-    return config?.gptPlugins?.plugins || {};
+    return config.gptPlugins?.plugins || {};
   },
 });
 
@@ -45,30 +46,10 @@ const endpointsFilter = selector({
   },
 });
 
-const availableEndpoints = selector({
-  key: 'availableEndpoints',
-  get: ({ get }) => {
-    const endpoints = [
-      'azureOpenAI',
-      'openAI',
-      'chatGPTBrowser',
-      'gptPlugins',
-      'bingAI',
-      'google',
-      'anthropic',
-      'custom',
-    ];
-    const f = get(endpointsFilter);
-    return endpoints.filter((endpoint) => f[endpoint]);
-  },
-});
-// const modelAvailable
-
 export default {
   plugins,
   endpointsConfig,
   endpointsFilter,
-  availableEndpoints,
   defaultConfig,
   endpointsQueryEnabled,
 };

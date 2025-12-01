@@ -2,13 +2,18 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
-
-const supportedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-const sizeLimit = 20 * 1024 * 1024; // 20 MB
+const { sanitizeFilename } = require('@librechat/api');
+const {
+  mergeFileConfig,
+  getEndpointFileConfig,
+  fileConfig: defaultFileConfig,
+} = require('librechat-data-provider');
+const { getAppConfig } = require('~/server/services/Config');
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    const outputPath = path.join(req.app.locals.paths.imageOutput, 'temp');
+    const appConfig = req.config;
+    const outputPath = path.join(appConfig.paths.uploads, 'temp', req.user.id);
     if (!fs.existsSync(outputPath)) {
       fs.mkdirSync(outputPath, { recursive: true });
     }
@@ -16,22 +21,68 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     req.file_id = crypto.randomUUID();
-    const fileExt = path.extname(file.originalname);
-    cb(null, `img-${req.file_id}${fileExt}`);
+    file.originalname = decodeURIComponent(file.originalname);
+    const sanitizedFilename = sanitizeFilename(file.originalname);
+    cb(null, sanitizedFilename);
   },
 });
 
-const fileFilter = (req, file, cb) => {
-  if (!supportedTypes.includes(file.mimetype)) {
-    return cb(
-      new Error('Unsupported file type. Only JPEG, JPG, PNG, and WEBP files are allowed.'),
-      false,
-    );
+const importFileFilter = (req, file, cb) => {
+  if (file.mimetype === 'application/json') {
+    cb(null, true);
+  } else if (path.extname(file.originalname).toLowerCase() === '.json') {
+    cb(null, true);
+  } else {
+    cb(new Error('Only JSON files are allowed'), false);
   }
-
-  cb(null, true);
 };
 
-const upload = multer({ storage, fileFilter, limits: { fileSize: sizeLimit } });
+/**
+ *
+ * @param {import('librechat-data-provider').FileConfig | undefined} customFileConfig
+ */
+const createFileFilter = (customFileConfig) => {
+  /**
+   * @param {ServerRequest} req
+   * @param {Express.Multer.File}
+   * @param {import('multer').FileFilterCallback} cb
+   */
+  const fileFilter = (req, file, cb) => {
+    if (!file) {
+      return cb(new Error('No file provided'), false);
+    }
 
-module.exports = upload;
+    if (req.originalUrl.endsWith('/speech/stt') && file.mimetype.startsWith('audio/')) {
+      return cb(null, true);
+    }
+
+    const endpoint = req.body.endpoint;
+    const endpointType = req.body.endpointType;
+    const endpointFileConfig = getEndpointFileConfig({
+      fileConfig: customFileConfig,
+      endpoint,
+      endpointType,
+    });
+
+    if (!defaultFileConfig.checkType(file.mimetype, endpointFileConfig.supportedMimeTypes)) {
+      return cb(new Error('Unsupported file type: ' + file.mimetype), false);
+    }
+
+    cb(null, true);
+  };
+
+  return fileFilter;
+};
+
+const createMulterInstance = async () => {
+  const appConfig = await getAppConfig();
+  const fileConfig = mergeFileConfig(appConfig?.fileConfig);
+  const fileFilter = createFileFilter(fileConfig);
+  return multer({
+    storage,
+    fileFilter,
+    limits: { fileSize: fileConfig.serverFileSizeLimit },
+  });
+};
+
+module.exports = { createMulterInstance, storage, importFileFilter };

@@ -1,136 +1,100 @@
-import { useRecoilState } from 'recoil';
 import { Search, X } from 'lucide-react';
-import { Dialog } from '@headlessui/react';
+import { Dialog, DialogPanel, DialogTitle } from '@headlessui/react';
 import { useState, useEffect, useCallback } from 'react';
-import { tConversationSchema } from 'librechat-data-provider';
-import {
-  useAvailablePluginsQuery,
-  useUpdateUserPluginsMutation,
-} from 'librechat-data-provider/react-query';
+import { useAvailablePluginsQuery } from 'librechat-data-provider/react-query';
 import type { TError, TPlugin, TPluginAction } from 'librechat-data-provider';
-import { useAuthContext } from '~/hooks/AuthContext';
+import type { TPluginStoreDialogProps } from '~/common/types';
+import {
+  usePluginDialogHelpers,
+  useSetIndexOptions,
+  usePluginInstall,
+  useAuthContext,
+  useLocalize,
+} from '~/hooks';
 import PluginPagination from './PluginPagination';
 import PluginStoreItem from './PluginStoreItem';
 import PluginAuthForm from './PluginAuthForm';
-import { useLocalize } from '~/hooks';
-import store from '~/store';
-
-type TPluginStoreDialogProps = {
-  isOpen: boolean;
-  setIsOpen: (open: boolean) => void;
-};
 
 function PluginStoreDialog({ isOpen, setIsOpen }: TPluginStoreDialogProps) {
   const localize = useLocalize();
-  const { data: availablePlugins } = useAvailablePluginsQuery();
   const { user } = useAuthContext();
-  const updateUserPlugins = useUpdateUserPluginsMutation();
-  const [conversation, setConversation] = useRecoilState(store.conversation) || {};
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [itemsPerPage, setItemsPerPage] = useState<number>(1);
-  const [maxPage, setMaxPage] = useState<number>(1);
+  const { data: availablePlugins } = useAvailablePluginsQuery();
+  const { setTools } = useSetIndexOptions();
+
   const [userPlugins, setUserPlugins] = useState<string[]>([]);
-  const [selectedPlugin, setSelectedPlugin] = useState<TPlugin | undefined>(undefined);
-  const [showPluginAuthForm, setShowPluginAuthForm] = useState<boolean>(false);
-  const [error, setError] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string>('');
-  const [searchChanged, setSearchChanged] = useState(false);
 
-  const handleInstallError = (error: TError) => {
-    setError(true);
-    if (error.response?.data?.message) {
-      setErrorMessage(error.response?.data?.message);
+  const {
+    maxPage,
+    setMaxPage,
+    currentPage,
+    setCurrentPage,
+    itemsPerPage,
+    searchChanged,
+    setSearchChanged,
+    searchValue,
+    setSearchValue,
+    gridRef,
+    handleSearch,
+    handleChangePage,
+    error,
+    setError,
+    errorMessage,
+    setErrorMessage,
+    showPluginAuthForm,
+    setShowPluginAuthForm,
+    selectedPlugin,
+    setSelectedPlugin,
+  } = usePluginDialogHelpers();
+
+  const handleInstallError = useCallback(
+    (error: TError) => {
+      setError(true);
+      if (error.response?.data?.message) {
+        setErrorMessage(error.response.data.message);
+      }
+      setTimeout(() => {
+        setError(false);
+        setErrorMessage('');
+      }, 5000);
+    },
+    [setError, setErrorMessage],
+  );
+
+  const { installPlugin, uninstallPlugin } = usePluginInstall({
+    onInstallError: handleInstallError,
+    onUninstallError: handleInstallError,
+    onUninstallSuccess: (_data, variables) => {
+      setTools(variables.pluginKey, true);
+    },
+  });
+
+  const handleInstall = (pluginAction: TPluginAction, plugin?: TPlugin) => {
+    if (!plugin) {
+      return;
     }
-    setTimeout(() => {
-      setError(false);
-      setErrorMessage('');
-    }, 5000);
-  };
-
-  const handleInstall = (pluginAction: TPluginAction) => {
-    updateUserPlugins.mutate(pluginAction, {
-      onError: (error: unknown) => {
-        handleInstallError(error as TError);
-      },
-    });
+    installPlugin(pluginAction, plugin);
     setShowPluginAuthForm(false);
   };
 
-  const onPluginUninstall = (plugin: string) => {
-    updateUserPlugins.mutate(
-      { pluginKey: plugin, action: 'uninstall', auth: null },
-      {
-        onError: (error: unknown) => {
-          handleInstallError(error as TError);
-        },
-        onSuccess: () => {
-          //@ts-ignore - can't set a default convo or it will break routing
-          let { tools } = conversation;
-          tools = tools.filter((t: TPlugin) => {
-            return t.pluginKey !== plugin;
-          });
-          localStorage.setItem('lastSelectedTools', JSON.stringify(tools));
-          setConversation((prevState) =>
-            tConversationSchema.parse({
-              ...prevState,
-              tools,
-            }),
-          );
-        },
-      },
-    );
-  };
-
   const onPluginInstall = (pluginKey: string) => {
-    const getAvailablePluginFromKey = availablePlugins?.find((p) => p.pluginKey === pluginKey);
-    setSelectedPlugin(getAvailablePluginFromKey);
+    const plugin = availablePlugins?.find((p) => p.pluginKey === pluginKey);
+    if (!plugin) {
+      return;
+    }
+    setSelectedPlugin(plugin);
 
-    const { authConfig, authenticated } = getAvailablePluginFromKey ?? {};
+    const { authConfig, authenticated } = plugin ?? {};
 
     if (authConfig && authConfig.length > 0 && !authenticated) {
       setShowPluginAuthForm(true);
     } else {
-      handleInstall({ pluginKey, action: 'install', auth: null });
+      handleInstall({ pluginKey, action: 'install', auth: null }, plugin);
     }
   };
 
-  const calculateColumns = (node) => {
-    const width = node.offsetWidth;
-    let columns;
-    if (width < 501) {
-      setItemsPerPage(8);
-      return;
-    } else if (width < 640) {
-      columns = 2;
-    } else if (width < 1024) {
-      columns = 3;
-    } else {
-      columns = 4;
-    }
-    setItemsPerPage(columns * 2); // 2 rows
-  };
-
-  const gridRef = useCallback(
-    (node) => {
-      if (node !== null) {
-        if (itemsPerPage === 1) {
-          calculateColumns(node);
-        }
-        const resizeObserver = new ResizeObserver(() => calculateColumns(node));
-        resizeObserver.observe(node);
-      }
-    },
-    [itemsPerPage],
-  );
-  const [searchValue, setSearchValue] = useState<string>('');
   const filteredPlugins = availablePlugins?.filter((plugin) =>
     plugin.name.toLowerCase().includes(searchValue.toLowerCase()),
   );
-
-  const handleSearch = (e) => {
-    setSearchValue(e.target.value);
-    setSearchChanged(true);
-  };
 
   useEffect(() => {
     if (user && user.plugins) {
@@ -144,11 +108,17 @@ function PluginStoreDialog({ isOpen, setIsOpen }: TPluginStoreDialogProps) {
         setSearchChanged(false);
       }
     }
-  }, [availablePlugins, itemsPerPage, user, searchValue, filteredPlugins, searchChanged]);
-
-  const handleChangePage = (page: number) => {
-    setCurrentPage(page);
-  };
+  }, [
+    availablePlugins,
+    itemsPerPage,
+    user,
+    searchValue,
+    filteredPlugins,
+    searchChanged,
+    setMaxPage,
+    setCurrentPage,
+    setSearchChanged,
+  ]);
 
   return (
     <Dialog
@@ -161,19 +131,19 @@ function PluginStoreDialog({ isOpen, setIsOpen }: TPluginStoreDialogProps) {
       className="relative z-[102]"
     >
       {/* The backdrop, rendered as a fixed sibling to the panel container */}
-      <div className="fixed inset-0 bg-gray-500/90 transition-opacity dark:bg-gray-800/90" />
+      <div className="fixed inset-0 bg-gray-600/65 transition-opacity dark:bg-black/80" />
       {/* Full-screen container to center the panel */}
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <Dialog.Panel
-          className="relative w-full transform overflow-hidden overflow-y-auto rounded-lg bg-white text-left shadow-xl transition-all dark:bg-gray-900 max-sm:h-full sm:mx-7 sm:my-8 sm:max-w-2xl lg:max-w-5xl xl:max-w-7xl"
+        <DialogPanel
+          className="relative w-full transform overflow-hidden overflow-y-auto rounded-lg bg-white text-left shadow-xl transition-all dark:bg-gray-700 max-sm:h-full sm:mx-7 sm:my-8 sm:max-w-2xl lg:max-w-5xl xl:max-w-7xl"
           style={{ minHeight: '610px' }}
         >
-          <div className="flex items-center justify-between border-b-[1px] border-black/10 px-4 pb-4 pt-5 dark:border-white/10 sm:p-6">
+          <div className="flex items-center justify-between border-b-[1px] border-black/10 p-6 pb-4 dark:border-white/10">
             <div className="flex items-center">
               <div className="text-center sm:text-left">
-                <Dialog.Title className="text-lg font-medium leading-6 text-gray-900 dark:text-gray-200">
+                <DialogTitle className="text-lg font-medium leading-6 text-gray-800 dark:text-gray-200">
                   {localize('com_nav_plugin_store')}
-                </Dialog.Title>
+                </DialogTitle>
               </div>
             </div>
             <div>
@@ -183,7 +153,7 @@ function PluginStoreDialog({ isOpen, setIsOpen }: TPluginStoreDialogProps) {
                     setIsOpen(false);
                     setCurrentPage(1);
                   }}
-                  className="inline-block text-gray-500 hover:text-gray-100"
+                  className="inline-block text-gray-500 hover:text-gray-200"
                   tabIndex={0}
                 >
                   <X />
@@ -203,35 +173,24 @@ function PluginStoreDialog({ isOpen, setIsOpen }: TPluginStoreDialogProps) {
             <div className="p-4 sm:p-6 sm:pt-4">
               <PluginAuthForm
                 plugin={selectedPlugin}
-                onSubmit={(installActionData: TPluginAction) => handleInstall(installActionData)}
+                onSubmit={(action: TPluginAction) => handleInstall(action, selectedPlugin)}
               />
             </div>
           )}
           <div className="p-4 sm:p-6 sm:pt-4">
             <div className="mt-4 flex flex-col gap-4">
-              <div style={{ position: 'relative', display: 'inline-block', width: '250px' }}>
-                <input
-                  type="text"
-                  value={searchValue}
-                  onChange={handleSearch}
-                  placeholder={localize('com_nav_plugin_search')}
-                  style={{
-                    width: '100%',
-                    paddingLeft: '30px',
-                    border: '1px solid #ccc',
-                    borderRadius: '4px', // This rounds the corners
-                  }}
-                />
-                <Search
-                  style={{
-                    position: 'absolute',
-                    left: '10px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    width: '16px',
-                    height: '16px',
-                  }}
-                />
+              <div className="flex items-center">
+                <div className="relative flex items-center">
+                  <Search className="absolute left-2 h-6 w-6 text-gray-500" />
+                  <input
+                    type="text"
+                    value={searchValue}
+                    onChange={handleSearch}
+                    placeholder={localize('com_nav_plugin_search')}
+                    className="
+                    text-token-text-primary flex rounded-md border border-border-heavy bg-surface-tertiary py-2 pl-10 pr-2"
+                  />
+                </div>
               </div>
               <div
                 ref={gridRef}
@@ -247,7 +206,7 @@ function PluginStoreDialog({ isOpen, setIsOpen }: TPluginStoreDialogProps) {
                         plugin={plugin}
                         isInstalled={userPlugins.includes(plugin.pluginKey)}
                         onInstall={() => onPluginInstall(plugin.pluginKey)}
-                        onUninstall={() => onPluginUninstall(plugin.pluginKey)}
+                        onUninstall={() => uninstallPlugin(plugin.pluginKey)}
                       />
                     ))}
               </div>
@@ -278,7 +237,7 @@ function PluginStoreDialog({ isOpen, setIsOpen }: TPluginStoreDialogProps) {
               </div> */}
             </div>
           </div>
-        </Dialog.Panel>
+        </DialogPanel>
       </div>
     </Dialog>
   );
