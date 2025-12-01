@@ -46,7 +46,7 @@ services:
       - MEILI_NO_ANALYTICS=true
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-}
     volumes:
-      - /volume1/docker/librechat/meili_data_v1.12:/meili_data
+      - /volume1/docker/librechat/data/meili_data_v1.12:/meili_data
 
   vectordb:
     container_name: vectordb
