@@ -11,17 +11,17 @@ services:
 # # BUILD FROM LATEST IMAGE
   api:
     volumes:
-      - ./.env:/app/.env
-      - ./images:/app/client/public/images
-      - ./uploads:/app/uploads
-      - ./logs:/app/logs
+      - /volume1/docker/librechat/data/.env:/app/.env
+      - /volume1/docker/librechat/data/images:/app/client/public/images
+      - /volume1/docker/librechat/data/uploads:/app/uploads
+      - /volume1/docker/librechat/data/logs:/app/logs
   mongodb:
     container_name: chat-mongodb
     image: mongo:4.2
     restart: always
     user: "${UID}:${GID}"
     volumes:
-      - ./data-node:/data/db
+      - /volume1/docker/librechat/data-node:/data/db
     command: mongod --noauth
 
 # # USE MONGODB V4.4.18 - FOR OLDER CPU WITHOUT AVX SUPPORT
@@ -46,8 +46,12 @@ services:
   meilisearch:
 #     profiles:
 #       - donotstart
+    user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ./meili_data_v1.12:/meili_data
+      - /volume1/docker/librechat/meili_data_v1.12:/meili_data
+  rag_api:
+    env_file:
+      - /volume1/docker/librechat/data/.env
 
 # # EXPOSE MEILISEARCH PORTS - DO NOT USE THE DEFAULT VALUE FOR THE MASTER KEY IF YOU DO THIS
 #   meilisearch:
