@@ -68,8 +68,6 @@ services:
     restart: always
     depends_on:
       - vectordb
-    env_file:
-      - /volume1/docker/librechat/data/.env
 
 volumes:
   pgdata2:
