@@ -29,11 +29,11 @@ services:
 
   mongodb:
     container_name: chat-mongodb
-    image: mongo
+    image: mongo:4.2
     restart: always
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - /volume1/docker/librechat/data-node:/data/db
+      - /volume1/docker/librechat/data/data-node:/data/db
     command: mongod --noauth
 
   meilisearch:

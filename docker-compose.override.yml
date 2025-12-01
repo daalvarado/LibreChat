@@ -16,7 +16,7 @@ services:
     restart: always
     user: "${UID}:${GID}"
     volumes:
-      - /volume1/docker/librechat/data-node:/data/db
+      - /volume1/docker/librechat/data/data-node:/data/db
     command: mongod --noauth
   meilisearch:
 #     profiles:
