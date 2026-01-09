@@ -26,6 +26,8 @@ services:
       - /volume1/docker/librechat/data/images:/app/client/public/images
       - /volume1/docker/librechat/data/uploads:/app/uploads
       - /volume1/docker/librechat/data/logs:/app/api/logs
+      - /volume1/docker/librechat/data/librechat.yaml:/app/librechat.yaml
+
 
   mongodb:
     container_name: chat-mongodb
