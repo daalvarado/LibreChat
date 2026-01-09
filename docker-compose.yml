@@ -71,7 +71,7 @@ services:
     depends_on:
       - vectordb
     env_file:
-      - ./app/.env
+      - ./.env
 
 volumes:
   pgdata2:
