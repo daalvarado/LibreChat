@@ -67,11 +67,11 @@ services:
     environment:
       - DB_HOST=vectordb
       - RAG_PORT=${RAG_PORT:-8000}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
     restart: always
     depends_on:
       - vectordb
-    env_file:
-      - ./app/.env
+
 
 volumes:
   pgdata2:
